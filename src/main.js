@@ -365,98 +365,188 @@ const STORY_SELECTED_KEY = 'zeppelin-defense.story-selected.v1';
 const STORY_PROGRESS_PREFIX = 'zeppelin-defense.story-progress.';
 const AIRSHIP_STORIES = [
   {
-    id: 'convoy',
-    title: 'Небесный конвой',
-    subtitle: 'Медикаменты для закрытого города',
-    description: 'Экипаж ведёт дирижабль через опасный воздушный коридор, чтобы доставить помощь в город за линией фронта.',
+    id: 'world80',
+    title: 'In 80 Tagen um die Welt',
+    subtitle: 'Eine Wette gegen die Zeit',
+    description: 'Лондонский джентльмен Филеас Фогг спорит, что объедет вокруг света за 80 дней, и вместе со слугой Паспарту мчится сквозь страны и штормы.',
     fragments: [
       {
-        title: 'Der stille Morgen',
-        text: 'Der Zeppelin liegt über den Wolken. Unten ist Krieg, oben ist nur Wind. Die Besatzung hört den ersten Funkspruch und weiß: Heute müssen sie den Himmel halten.',
+        title: 'Die Wette im Club',
+        levels: {
+          A1: 'Phileas Fogg ist ein ruhiger Mann aus London. Er sagt: Ich kann in 80 Tagen um die Welt reisen.',
+          A2: 'Im Club spielt Phileas Fogg jeden Abend Karten. Heute macht er eine große Wette: In nur 80 Tagen will er um die ganze Welt reisen.',
+          B1: 'Phileas Fogg war ein Gentleman, der jeden Tag dieselbe Routine hatte. Eines Abends wettete er im Club zwanzigtausend Pfund, dass er die Welt in achtzig Tagen umrunden könne.',
+          B2: 'Phileas Fogg, ein Mann von eiserner Pünktlichkeit, galt im Reform-Club als Sonderling. An jenem Abend behauptete er, die gesamte Welt lasse sich in nur achtzig Tagen umrunden – und setzte sein halbes Vermögen auf diese kühne Wette.',
+        },
       },
       {
-        title: 'Die Karte im Cockpit',
-        text: 'Auf der Karte ist die Route mit Bleistift gezeichnet. Jeder Punkt bedeutet Gefahr, aber auch Hoffnung. Wenn der Zeppelin weiterfliegt, erreichen Medikamente die eingeschlossene Stadt.',
+        title: 'Die Abreise mit Passepartout',
+        levels: {
+          A1: 'Fogg hat einen neuen Diener. Er heißt Passepartout. Sie nehmen den Zug und fahren los.',
+          A2: 'Foggs Diener heißt Passepartout. Am gleichen Abend packen sie eine Tasche, steigen in den Zug und beginnen die lange Reise nach Osten.',
+          B1: 'Sein neuer Diener Passepartout hatte sich eigentlich ein ruhiges Leben gewünscht. Doch schon am selben Abend saßen beide im Zug, denn Fogg wollte keine einzige Stunde verlieren.',
+          B2: 'Passepartout, der gerade erst in Foggs Dienst getreten war und auf ein geruhsames Leben gehofft hatte, fand sich noch am selben Abend im Zug wieder. Für seinen Herrn zählte jede Minute, und Verspätungen duldete er nicht.',
+        },
       },
       {
-        title: 'Das Licht am Heck',
-        text: 'In der Nacht sieht der Pilot ein kleines Licht am Heck des Luftschiffs. Es blinkt langsam. Das ist das Zeichen: Die Hülle ist beschädigt, aber der Zeppelin lebt noch.',
+        title: 'Eine Rettung in Indien',
+        levels: {
+          A1: 'In Indien sehen sie eine junge Frau in Gefahr. Fogg hilft ihr. Sie heißt Aouda und reist jetzt mit.',
+          A2: 'In Indien retten Fogg und Passepartout eine junge Witwe namens Aouda. Sie ist sehr dankbar und reist von nun an mit den beiden Männern weiter.',
+          B1: 'Mitten in Indien gerieten sie in eine gefährliche Lage, als sie die junge Witwe Aouda retteten. Weil sie nirgendwo sicher war, beschloss Fogg, sie mitzunehmen.',
+          B2: 'In Indien stießen die Reisenden auf die junge Witwe Aouda, die in höchster Gefahr schwebte. Ohne zu zögern befreiten sie die Frau, und da sie nirgends in Sicherheit war, nahm Fogg sie selbstverständlich unter seinen Schutz.',
+        },
       },
       {
-        title: 'Ein Brief aus der Gondel',
-        text: 'Der Mechaniker schreibt nur einen Satz: Wir sind noch hier. Dann faltet er den Brief und steckt ihn in seine Jacke. Er glaubt daran, dass jemand ihn später lesen wird.',
+        title: 'Der Detektiv Fix',
+        levels: {
+          A1: 'Ein Detektiv heißt Fix. Er denkt: Fogg ist ein Dieb. Er folgt ihnen überall.',
+          A2: 'Ein Detektiv namens Fix glaubt, dass Fogg eine Bank ausgeraubt hat. Darum folgt er ihm heimlich von Stadt zu Stadt.',
+          B1: 'Detektiv Fix war überzeugt, dass Fogg ein Bankräuber sei. Deshalb verfolgte er ihn heimlich und versuchte immer wieder, die Reise zu verzögern.',
+          B2: 'Der hartnäckige Detektiv Fix hielt Fogg für den gesuchten Bankräuber. Unbemerkt heftete er sich an seine Fersen und schmiedete einen Plan nach dem anderen, um die Weiterreise des Gentlemans aufzuhalten.',
+        },
       },
       {
-        title: 'Über dem Fluss',
-        text: 'Unter ihnen glänzt ein breiter Fluss. Für einen Moment schweigen alle. Der Himmel wirkt friedlich, doch am Horizont tauchen wieder Punkte auf. Die nächste Staffel kommt.',
+        title: 'Sturm auf dem Ozean',
+        levels: {
+          A1: 'Auf dem Meer kommt ein Sturm. Das Schiff ist langsam. Fogg hat wenig Zeit.',
+          A2: 'Auf dem Atlantik gerät das Schiff in einen Sturm. Der Wind ist stark und das Schiff wird langsamer. Fogg hat fast keine Zeit mehr.',
+          B1: 'Über dem Ozean tobte ein heftiger Sturm, der das Schiff aufhielt. Fogg blieb ruhig, obwohl die kostbare Zeit langsam zu Ende ging.',
+          B2: 'Als ein gewaltiger Sturm über den Atlantik fegte, drohte die Reise zu scheitern. Doch während die anderen verzweifelten, behielt Fogg die Nerven und kaufte kurzerhand das ganze Schiff, um sein Ziel rechtzeitig zu erreichen.',
+        },
       },
       {
-        title: 'Der letzte Funkspruch',
-        text: 'Nach der Verteidigung sendet die Funkerin eine kurze Meldung: Luftschiff gesichert. Dann lächelt sie zum ersten Mal seit Stunden. Die Geschichte fliegt weiter.',
+        title: 'Zurück in London',
+        levels: {
+          A1: 'Fogg kommt nach London zurück. Er denkt: Ich habe verloren. Aber er hat einen Tag gewonnen! Er gewinnt die Wette.',
+          A2: 'In London glaubt Fogg zuerst, dass er die Wette verloren hat. Doch er hat auf der Reise nach Osten einen ganzen Tag gewonnen. So kommt er doch rechtzeitig an und gewinnt.',
+          B1: 'Zurück in London war Fogg sicher, dass er zu spät gekommen war. Erst dann merkte er, dass er durch die Reise nach Osten einen Tag gewonnen hatte – und die Wette doch noch gewann.',
+          B2: 'In London angekommen, hielt Fogg sich für den Verlierer der Wette. Was er übersehen hatte: Auf seiner Reise gen Osten war ihm ein voller Tag geschenkt worden. So triumphierte er in letzter Sekunde – und fand obendrein in Aouda das Glück seines Lebens.',
+        },
       },
     ],
   },
   {
-    id: 'expedition',
-    title: 'Полярная экспедиция',
-    subtitle: 'Карта льдов и забытая станция',
-    description: 'Научная команда ищет метеостанцию, которая замолчала после снежной бури, и собирает данные для безопасного маршрута.',
+    id: 'oz',
+    title: 'Der Zauberer von Oz',
+    subtitle: 'Der Weg aus der Smaragdstadt',
+    description: 'Ураган уносит девочку Дороти в волшебную страну Оз, и она ищет дорогу домой по жёлтой кирпичной дороге — а в финале её ждёт воздушный шар.',
     fragments: [
       {
-        title: 'Der weiße Horizont',
-        text: 'Unter dem Zeppelin liegt nur Eis. Alles sieht gleich aus. Der Navigator markiert jeden dunklen Punkt, denn irgendwo dort muss die verlorene Station stehen.',
+        title: 'Der Wirbelsturm',
+        levels: {
+          A1: 'Dorothy lebt in Kansas. Ein Wirbelsturm kommt. Er trägt ihr Haus weit weg.',
+          A2: 'Dorothy wohnt mit ihrem Hund Toto in Kansas. Eines Tages kommt ein starker Wirbelsturm und trägt ihr kleines Haus hoch in die Luft.',
+          B1: 'Dorothy lebte mit ihrem Hund Toto auf einem Bauernhof in Kansas. Als ein gewaltiger Wirbelsturm aufzog, hob er das ganze Haus in die Luft und trug es davon.',
+          B2: 'Dorothy führte mit ihrem treuen Hund Toto ein einfaches Leben in der grauen Weite von Kansas. Doch eines Tages riss ein gewaltiger Wirbelsturm das Haus samt Mädchen und Hund empor und schleuderte es in eine völlig fremde Welt.',
+        },
       },
       {
-        title: 'Das kaputte Thermometer',
-        text: 'In der Gondel zeigt ein altes Thermometer falsche Werte. Die Forscherin lacht nicht. Sie weiß: Wenn die Zahlen lügen, wird auch die Karte gefährlich.',
+        title: 'Das Land Oz',
+        levels: {
+          A1: 'Das Haus landet im Land Oz. Alles ist bunt. Dorothy folgt der gelben Straße.',
+          A2: 'Das Haus landet in einem bunten Land namens Oz. Dorothy will nach Hause und folgt einer Straße aus gelben Steinen.',
+          B1: 'Das Haus landete in dem wunderbaren Land Oz, wo alles farbig und fremd war. Um nach Hause zu finden, folgte Dorothy der gelben Ziegelstraße.',
+          B2: 'Als das Haus endlich landete, fand sich Dorothy in dem farbenprächtigen Land Oz wieder, das ihr fremder nicht hätte sein können. Man riet ihr, der gelben Ziegelstraße zu folgen, die sie zur geheimnisvollen Smaragdstadt führen sollte.',
+        },
       },
       {
-        title: 'Spuren im Schnee',
-        text: 'Am Nachmittag sieht die Besatzung Linien im Schnee. Es sind keine Straßen, sondern alte Schlitten-Spuren. Jemand war hier, und vielleicht ist jemand noch hier.',
+        title: 'Drei Freunde',
+        levels: {
+          A1: 'Dorothy trifft drei Freunde: eine Vogelscheuche, einen Mann aus Blech und einen Löwen.',
+          A2: 'Auf dem Weg trifft Dorothy drei Freunde: eine Vogelscheuche ohne Verstand, einen Mann aus Blech ohne Herz und einen Löwen ohne Mut.',
+          B1: 'Unterwegs schlossen sich Dorothy drei Gefährten an: eine Vogelscheuche, die sich Verstand wünschte, ein Blechmann, der ein Herz suchte, und ein Löwe, dem der Mut fehlte.',
+          B2: 'Auf ihrer langen Wanderung gewann Dorothy drei ungewöhnliche Gefährten: eine Vogelscheuche, die sich nach Verstand sehnte, einen Blechmann, der von einem Herzen träumte, und einen ängstlichen Löwen, der endlich Mut finden wollte.',
+        },
       },
       {
-        title: 'Der Sturm spricht',
-        text: 'Der Wind wird so laut, dass niemand mehr normal sprechen kann. Befehle werden auf Papier geschrieben. Jeder Zettel ist klein, aber wichtig.',
+        title: 'Die Smaragdstadt',
+        levels: {
+          A1: 'Endlich sehen sie die grüne Stadt. Dort wohnt der große Zauberer von Oz.',
+          A2: 'Am Ende der Straße erreichen sie die grüne Smaragdstadt. Hier wohnt der mächtige Zauberer von Oz, und alle hoffen auf seine Hilfe.',
+          B1: 'Schließlich erreichten sie die glänzende Smaragdstadt, in der der mächtige Zauberer von Oz lebte. Jeder hoffte, dass er ihm seinen größten Wunsch erfüllen würde.',
+          B2: 'Nach vielen Gefahren erreichten die Gefährten endlich die strahlende Smaragdstadt, wo der allmächtige Zauberer von Oz herrschen sollte. Voller Hoffnung trat jeder vor ihn, überzeugt, dass nur er ihre sehnlichsten Wünsche erfüllen könne.',
+        },
       },
       {
-        title: 'Ein Licht unter Eis',
-        text: 'Kurz vor Sonnenuntergang blinkt etwas unter einer Eisschicht. Es ist kein Stern. Es ist die Lampe der Station, schwach, aber noch nicht erloschen.',
+        title: 'Das Geheimnis des Zauberers',
+        levels: {
+          A1: 'Der Zauberer ist gar kein Zauberer. Er ist nur ein alter Mann. Er hat einen großen Ballon.',
+          A2: 'Bald entdecken sie ein Geheimnis: Der Zauberer ist gar nicht mächtig. Er ist nur ein alter Mann, der mit einem großen Ballon nach Hause fliegen will.',
+          B1: 'Doch hinter einem Vorhang entdeckten sie die Wahrheit: Der Zauberer war gar kein Zauberer, sondern ein einfacher alter Mann. Mit einem großen Ballon wollte er die Stadt verlassen.',
+          B2: 'Hinter einem Vorhang kam die überraschende Wahrheit ans Licht: Der gefürchtete Zauberer war nichts als ein gewöhnlicher alter Mann, den man einst selbst mit einem Ballon nach Oz verschlagen hatte. Nun rüstete er denselben Ballon, um endlich in seine Heimat zurückzukehren.',
+        },
       },
       {
-        title: 'Die zweite Karte',
-        text: 'In der Station findet die Crew eine zweite Karte. Darauf steht ein neuer Weg durch die Berge. Die Expedition war nicht umsonst.',
+        title: 'Nach Hause',
+        levels: {
+          A1: 'Dorothy hat magische Schuhe. Sie schlägt die Schuhe zusammen und sagt: nach Hause! So kommt sie zurück nach Kansas.',
+          A2: 'Am Ende helfen Dorothy ihre magischen Schuhe. Sie schlägt die Hacken dreimal zusammen, wünscht sich ihr Zuhause – und ist plötzlich wieder in Kansas.',
+          B1: 'Am Ende erfuhr Dorothy, dass ihre silbernen Schuhe Zauberkraft besaßen. Sie schlug die Hacken dreimal zusammen, dachte fest an ihr Zuhause und stand im nächsten Augenblick wieder in Kansas.',
+          B2: 'Schließlich offenbarte sich Dorothy das letzte Geheimnis: Ihre silbernen Schuhe hatten die ganze Zeit die Macht besessen, sie heimzubringen. Sie schlug die Hacken dreimal zusammen, dachte voller Sehnsucht an Kansas – und kehrte im selben Augenblick zu denen zurück, die sie liebte.',
+        },
       },
     ],
   },
   {
-    id: 'letters',
-    title: 'Письма над облаками',
-    subtitle: 'Почтовый рейс сквозь войну',
-    description: 'Почтовый дирижабль несёт письма тем, кто давно не слышал родных голосов, и каждый рейс открывает новую судьбу.',
+    id: 'treasure',
+    title: 'Die Schatzinsel',
+    subtitle: 'Eine Karte und ein Geheimnis',
+    description: 'Юнга Джим Хокинс находит карту сокровищ и отправляется на корабле к далёкому острову, где его ждут пираты, золото и предатель среди команды.',
     fragments: [
       {
-        title: 'Der Postsack',
-        text: 'Im Bauch des Zeppelins liegt ein schwerer Postsack. Er enthält keine Waffen, nur Briefe. Trotzdem bewacht ihn der Funker wie einen Schatz.',
+        title: 'Die alte Seekarte',
+        levels: {
+          A1: 'Jim ist ein junger Junge. Er findet eine alte Karte. Auf der Karte ist ein Schatz.',
+          A2: 'Der junge Jim findet in einer alten Kiste eine geheimnisvolle Karte. Auf ihr sind eine Insel und ein Kreuz: Dort liegt ein Schatz.',
+          B1: 'Der junge Jim Hawkins entdeckte in der Truhe eines toten Seemanns eine alte Karte. Sie zeigte eine ferne Insel, und ein rotes Kreuz markierte einen verborgenen Schatz.',
+          B2: 'In der Truhe eines verstorbenen Kapitäns stieß der junge Jim Hawkins auf eine vergilbte Seekarte. Sie zeigte eine entlegene Insel, auf der ein rotes Kreuz den Ort eines sagenhaften Piratenschatzes verriet.',
+        },
       },
       {
-        title: 'An Anna',
-        text: 'Ein Brief beginnt mit den Worten: Liebe Anna. Der Pilot liest nicht weiter. Aber er hält den Umschlag kurz in der Hand und denkt an sein eigenes Zuhause.',
+        title: 'An Bord der Hispaniola',
+        levels: {
+          A1: 'Jim segelt mit einem Schiff. Das Schiff heißt Hispaniola. Der Koch heißt Long John Silver.',
+          A2: 'Jim segelt mit dem Schiff Hispaniola zur Insel. Der freundliche Koch mit nur einem Bein heißt Long John Silver.',
+          B1: 'Bald segelte Jim auf der Hispaniola hinaus aufs Meer. Der Schiffskoch, ein freundlicher Mann mit nur einem Bein, hieß Long John Silver.',
+          B2: 'Schon wenige Wochen später stach Jim an Bord der Hispaniola in See. Besonders gut verstand er sich mit dem einbeinigen Schiffskoch Long John Silver, dessen einnehmende Art jedoch trog.',
+        },
       },
       {
-        title: 'Die falsche Adresse',
-        text: 'Ein Umschlag hat eine fast unlesbare Adresse. Die Mannschaft diskutiert lange. Am Ende entscheidet sie: Auch dieser Brief muss ankommen.',
+        title: 'Das Gespräch im Apfelfass',
+        levels: {
+          A1: 'Jim sitzt in einem Fass. Er hört die Männer. Sie sind Piraten!',
+          A2: 'Eines Abends versteckt sich Jim in einem Apfelfass. Dort hört er ein Geheimnis: Silver und seine Männer sind Piraten und planen einen Verrat.',
+          B1: 'Eines Nachts kletterte Jim in ein Apfelfass und hörte zufällig ein Gespräch. So erfuhr er, dass Silver und seine Männer in Wahrheit Piraten waren, die eine Meuterei planten.',
+          B2: 'Als Jim sich eines Abends in einem Apfelfass versteckte, belauschte er ein verhängnisvolles Gespräch. Mit Entsetzen begriff er, dass der freundliche Silver und ein Großteil der Mannschaft Piraten waren, die nur auf den richtigen Moment für ihre Meuterei warteten.',
+        },
       },
       {
-        title: 'Musik im Nebel',
-        text: 'Als Nebel aufzieht, summt jemand ein altes Lied. Erst ist es leise, dann singen drei Stimmen mit. Für eine Minute klingt der Krieg weit weg.',
+        title: 'Land in Sicht',
+        levels: {
+          A1: 'Endlich sehen sie Land. Es ist die Insel. Alle sind nervös.',
+          A2: 'Nach vielen Tagen rufen die Matrosen: Land! Vor ihnen liegt die Insel mit dem Schatz, doch die Stimmung an Bord ist gefährlich.',
+          B1: 'Nach langer Fahrt tauchte endlich die Insel am Horizont auf. Die Spannung an Bord wuchs, denn jeder wusste nun, dass bald ein Kampf um den Schatz beginnen würde.',
+          B2: 'Nach wochenlanger Fahrt erhob sich die geheimnisvolle Insel endlich aus dem Meer. Die Luft an Bord war zum Zerreißen gespannt, denn beide Seiten ahnten, dass der Kampf um das Gold unmittelbar bevorstand.',
+        },
       },
       {
-        title: 'Der rote Stempel',
-        text: 'Auf einem Paket steht ein roter Stempel: dringend. Niemand weiß, was darin ist. Aber alle wissen, dass Dringlichkeit manchmal ein anderes Wort für Hoffnung ist.',
+        title: 'Ben Gunn',
+        levels: {
+          A1: 'Auf der Insel lebt ein Mann allein. Er heißt Ben Gunn. Er kennt das Gold.',
+          A2: 'Auf der Insel trifft Jim einen einsamen Mann namens Ben Gunn. Er lebt schon lange allein hier und kennt das Geheimnis des Goldes.',
+          B1: 'Auf der Insel begegnete Jim einem seltsamen Mann namens Ben Gunn, der seit Jahren allein dort lebte. Er hatte den Schatz längst gefunden und an einen sicheren Ort gebracht.',
+          B2: 'Auf der Insel stieß Jim auf den wunderlichen Ben Gunn, der nach Jahren der Einsamkeit halb verwildert war. Wie sich herausstellte, hatte gerade dieser vergessene Mann den Schatz längst entdeckt und heimlich in ein neues Versteck geschafft.',
+        },
       },
       {
-        title: 'Antwort aus der Stadt',
-        text: 'Nach der Landung bekommt die Crew selbst einen Brief. Darin steht nur: Sie sind angekommen. Mehr braucht niemand zu lesen.',
+        title: 'Das Gold und die Heimfahrt',
+        levels: {
+          A1: 'Am Ende finden sie das Gold. Jim fährt nach Hause. Er ist jetzt reich.',
+          A2: 'Am Ende gewinnen die ehrlichen Männer den Kampf und finden das Gold. Jim segelt nach Hause und ist endlich reich und in Sicherheit.',
+          B1: 'Schließlich besiegten die ehrlichen Männer die Piraten und bargen das Gold. Jim kehrte wohlbehalten nach Hause zurück, reicher und um viele Abenteuer klüger.',
+          B2: 'Am Ende setzten sich die ehrlichen Männer gegen die Piraten durch und brachten den sagenhaften Schatz an Bord. Jim kehrte wohlbehalten in die Heimat zurück – nicht nur reich an Gold, sondern auch an Erinnerungen, die ihn sein Leben lang begleiten sollten.',
+        },
       },
     ],
   },
@@ -549,6 +639,16 @@ function renderStoryChoice() {
   });
 }
 
+// Stories are graded readers: each fragment carries one German text per CEFR
+// level. Pick the variant for the player's selected level, with sensible
+// fallbacks (and the legacy single-text shape) so nothing ever renders blank.
+const STORY_LEVELS = ['A1', 'A2', 'B1', 'B2'];
+function fragmentText(fragment, level) {
+  const lv = fragment.levels;
+  if (lv) return lv[level] || lv.A2 || lv[STORY_LEVELS.find(l => lv[l])] || '';
+  return fragment.text || '';
+}
+
 function showVictoryStory() {
   if (!ui.storyCard) return;
   const { story, fragment, number, total } = nextStoryFragment();
@@ -556,7 +656,7 @@ function showVictoryStory() {
   ui.storyCard.innerHTML = `
     <div class="story-kicker">${escapeHtml(story.title)} · фрагмент ${number}/${total} · ${escapeHtml(level)}</div>
     <b>${escapeHtml(fragment.title)}</b>
-    <p>${escapeHtml(fragment.text)}</p>
+    <p>${escapeHtml(fragmentText(fragment, level))}</p>
   `;
   ui.storyCard.classList.remove('hidden');
 }

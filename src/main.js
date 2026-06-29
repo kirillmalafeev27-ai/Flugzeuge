@@ -38,9 +38,15 @@ const CFG = {
   PROP_RPS: 22,            // propeller revolutions / second (~realistic WW1 idle/cruise)
   ROUND_TIME: 120,         // seconds to survive
   AIM_CONE: Math.PI / 4,   // ±45°
+  AIM_SENS: 0.0042,        // gun mouse sensitivity (higher = turns faster)
   AMMO_START: 60, AMMO_RELOAD: 30, AMMO_MAX: 240,
   SHIP_HP: 100, PLAYER_HP: 100, ENEMY_HP: 100,
   FLOOR: -22,
+  // --- balance ---
+  ENEMY_SPEED: [9, 13],    // much calmer than before
+  MAX_PURSUERS: 2,         // at most this many may peel off to chase you
+  MAX_ENEMIES_BASE: 3,     // how many fighters in the sky early on
+  MAX_ENEMIES_CAP: 6,      // hard cap as the wave ramps
 };
 
 /* ============================ RENDERER ============================== */
@@ -411,18 +417,19 @@ function makeEnemy() {
   fixOriginalMaterial(clone);
   const n = normalize(clone, CFG.ENEMY.size, CFG.ENEMY.rot);
   const obj = n.pivot; enableShadows(obj, true, false);
-  // spawn far out on a ring around the airship, all heading inbound
-  const ang = rnd(0, Math.PI * 2), R = rnd(95, 135);
-  const sp = airship.position.clone().add(V3(Math.cos(ang) * R, rnd(-4, 18), Math.sin(ang) * R));
+  // spawn out on a ring around the airship, heading inbound
+  const ang = rnd(0, Math.PI * 2), R = rnd(75, 110);
+  const sp = airship.position.clone().add(V3(Math.cos(ang) * R, rnd(-4, 16), Math.sin(ang) * R));
   obj.position.copy(sp);
   faceForward(obj, airship.position); // nose inbound from the start
   scene.add(obj);
   const e = {
-    obj, hp: CFG.ENEMY_HP, state: 'approach', speed: rnd(22, 30),
-    fireT: rnd(.3, 1), pursuer: Math.random() < 0.45, passes: 0, roll: 0, alive: true, target: 'ship',
+    obj, hp: CFG.ENEMY_HP, state: 'approach', speed: rnd(CFG.ENEMY_SPEED[0], CFG.ENEMY_SPEED[1]),
+    fireT: rnd(.5, 1.4), pursuer: Math.random() < 0.5, passes: 0, roll: 0, alive: true, target: 'ship',
   };
   enemies.push(e);
 }
+function chaserCount() { let n = 0; for (const e of enemies) if (e.alive && e.state === 'chase') n++; return n; }
 function cloneSkinned(o) { return o.clone(true); }
 // Orient an object so its NOSE (-Z) points at target. (Object3D.lookAt points +Z,
 // which would aim the tail at the target.)
@@ -463,34 +470,35 @@ function updateEnemies(dt) {
     if (e.state === 'chase') {
       // pursuer that broke off: hunt the player and shoot at them
       const desired = player.position.clone().sub(obj.position); const d = desired.length(); desired.normalize();
-      flyToward(e, desired, dt, 1.3);
+      flyToward(e, desired, dt, 1.0);
       e.fireT -= dt;
       const near = clamp(1 - d / 90, 0, 1);
-      if (e.fireT <= 0 && d < 90) { e.fireT = lerp(1.6, 0.45, near); e.target = 'player'; enemyFire(e, player.position, near); }
-      // if we overshoot the player badly, swing back around
-      if (d > 140) { /* keep chasing, flyToward will curve back */ }
+      if (e.fireT <= 0 && d < 90) { e.fireT = lerp(2.0, 0.7, near); e.target = 'player'; enemyFire(e, player.position, near); }
     } else if (e.state === 'approach') {
       // run in on the airship, firing more accurately the closer we get
       const desired = ship.clone().sub(obj.position).normalize();
-      flyToward(e, desired, dt, 1.1);
+      flyToward(e, desired, dt, 0.9);
       e.fireT -= dt;
-      const near = clamp(1 - distShip / 110, 0, 1);
-      if (e.fireT <= 0 && distShip < 110) { e.fireT = lerp(1.5, 0.4, near); e.target = 'ship'; enemyFire(e, ship, near); }
+      const near = clamp(1 - distShip / 100, 0, 1);
+      if (e.fireT <= 0 && distShip < 100) { e.fireT = lerp(1.8, 0.6, near); e.target = 'ship'; enemyFire(e, ship, near); }
       if (distShip < 24) e.state = 'pass';
     } else if (e.state === 'pass') {
       // punch straight through, past the airship
       _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
       e.roll = lerp(e.roll, 0, clamp(4 * dt, 0, 1));
-      const rollQ = new T.Quaternion().setFromAxisAngle(_fwd, e.roll);
       // keep current heading (no steer) — just fly forward
       obj.position.addScaledVector(_fwd, e.speed * dt);
-      if (distShip > 55) { e.passes++; e.state = (e.pursuer && e.passes >= 1) ? 'chase' : 'turn'; }
+      if (distShip > 50) {
+        e.passes++;
+        // only let a couple peel off to chase you; the rest loop back on the airship
+        e.state = (e.pursuer && e.passes >= 1 && chaserCount() < CFG.MAX_PURSUERS) ? 'chase' : 'turn';
+      }
     } else if (e.state === 'turn') {
-      // out beyond the airship: bank hard and come back around for another run
+      // out beyond the airship: bank around and come back for another run
       const desired = ship.clone().sub(obj.position).normalize();
-      flyToward(e, desired, dt, 1.9);
+      flyToward(e, desired, dt, 1.3);
       _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
-      if (_fwd.dot(desired) > 0.75) e.state = 'approach'; // now pointing back at the airship
+      if (_fwd.dot(desired) > 0.75) e.state = 'approach'; // pointing back at the airship
     }
 
     if (obj.position.y < CFG.FLOOR + 8) obj.position.y = CFG.FLOOR + 8;
@@ -508,9 +516,9 @@ function enemyFire(e, targetPos, near) {
   spawnTracer(muzzle, dir, muzzle.distanceTo(targetPos) + 6, false);
   muzzleFlash(muzzle, dir);
   // hit chance scales with proximity
-  if (Math.random() < near * 0.55) {
-    if (e.target === 'player') { damagePlayer(Math.round(rnd(3, 7))); }
-    else { damageShip(Math.round(rnd(2, 5)), targetPos); }
+  if (Math.random() < near * 0.4) {
+    if (e.target === 'player') { damagePlayer(Math.round(rnd(2, 5))); }
+    else { damageShip(Math.round(rnd(2, 4)), targetPos); }
   }
 }
 
@@ -596,17 +604,20 @@ if (location.search.includes('debug')) {
 }
 addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] = false; });
 
-let pointerLocked = false;
-renderer.domElement.addEventListener('click', () => {
-  if (G.running && G.mode === 'gun' && !pointerLocked) renderer.domElement.requestPointerLock();
-});
-document.addEventListener('pointerlockchange', () => { pointerLocked = document.pointerLockElement === renderer.domElement; });
+// Absolute aiming: the view pans toward wherever the cursor is (no click/lock
+// needed). Cursor at screen edge ≈ full ±45° deflection.
+let aimNX = 0, aimNY = 0; // -1..1 from screen centre
 addEventListener('mousemove', e => {
-  if (G.mode === 'gun' && pointerLocked) {
-    G.yaw = clamp(G.yaw - e.movementX * 0.0022, -CFG.AIM_CONE, CFG.AIM_CONE);
-    G.pitch = clamp(G.pitch - e.movementY * 0.0022, -CFG.AIM_CONE, CFG.AIM_CONE);
-  }
+  aimNX = (e.clientX / innerWidth) * 2 - 1;
+  aimNY = (e.clientY / innerHeight) * 2 - 1;
 });
+function updateGunAim(dt) {
+  const tYaw = clamp(-aimNX * CFG.AIM_CONE * 1.15, -CFG.AIM_CONE, CFG.AIM_CONE);
+  const tPitch = clamp(-aimNY * CFG.AIM_CONE * 1.15, -CFG.AIM_CONE, CFG.AIM_CONE);
+  const k = Math.min(1, 11 * dt); // nimble but smooth
+  G.yaw = lerp(G.yaw, tYaw, k);
+  G.pitch = lerp(G.pitch, tPitch, k);
+}
 renderer.domElement.addEventListener('pointerdown', () => { if (G.mode === 'gun') firing = true; });
 addEventListener('pointerup', () => { firing = false; });
 
@@ -627,7 +638,7 @@ function toggleMode() {
   ui.hint.innerHTML = gunMode
     ? '<kbd>ЛКМ</kbd> огонь · <kbd>мышь</kbd> наводка (±45°) · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> в полёт'
     : '<kbd>W/S</kbd> тангаж · <kbd>A/D</kbd> крен · <kbd>Q/E</kbd> рыскание · <kbd>Shift/Ctrl</kbd> газ · <kbd>TAB</kbd> к пулемёту';
-  if (!gunMode && pointerLocked) document.exitPointerLock();
+  renderer.domElement.style.cursor = gunMode ? 'none' : 'default';
   gun.visible = gunMode;
   if (gunMode) {
     // freeze the plane exactly where it is; the gun aims where the nose points
@@ -712,12 +723,13 @@ function updateFlight(dt) {
 }
 
 /* ============================ SPAWN DIRECTOR ===================== */
-let spawnT = 0, waveLevel = 0;
+let spawnT = 0;
 function updateSpawns(dt) {
   spawnT -= dt;
-  const target = 3 + Math.floor((CFG.ROUND_TIME - G.timeLeft) / 24); // ramps up over time
+  const elapsed = CFG.ROUND_TIME - G.timeLeft;
+  const target = Math.min(CFG.MAX_ENEMIES_CAP, CFG.MAX_ENEMIES_BASE + Math.floor(elapsed / 40));
   if (spawnT <= 0 && enemies.length < target) {
-    makeEnemy(); spawnT = rnd(1.6, 3.2);
+    makeEnemy(); spawnT = rnd(2.6, 4.5);
   }
 }
 
@@ -736,7 +748,7 @@ function startGame() {
 async function endGame(won, msg) {
   if (G.over) return;
   G.over = true; G.running = false;
-  firing = false; if (pointerLocked) document.exitPointerLock();
+  firing = false; renderer.domElement.style.cursor = 'default';
   ui.endIcon.textContent = won ? '🏆' : '💥';
   ui.endTitle.textContent = won ? 'Дирижабль удержан' : 'Поражение';
   ui.end.classList.toggle('win', won); ui.end.classList.toggle('lose', !won);
@@ -767,6 +779,7 @@ function frame() {
     }
 
     if (G.mode === 'gun') {
+      updateGunAim(dt);
       updateGunCamera(dt);
       cooldown -= dt;
       if (firing && G.ammo > 0 && cooldown <= 0) { fire(); cooldown = FIRE_DT; }

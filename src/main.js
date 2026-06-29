@@ -335,8 +335,9 @@ let player = null, propeller = null, airship = null, gun = null;
 let enemyTpl = null;       // template gltf scene for cloning
 const enemies = [];
 const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 14 };
-const NEST = new T.Vector3();        // fixed gun-mode station (set on start)
-const NEST_FWD = V3(0, 0, -1);       // direction the parked plane / gunner faces
+// Gun mode is anchored to wherever the plane currently is + whichever way its
+// nose points — NOT a fixed point in space. Frozen on entering gun mode.
+const gunBase = { pos: new T.Vector3(), quat: new T.Quaternion() };
 let shake = 0;
 
 /* ============================ BUILD WORLD ========================= */
@@ -400,79 +401,107 @@ async function boot() {
 }
 
 /* ============================ ENEMIES ============================= */
-const ENEMY_COLOR = 0x9c3a2e; // Red-Baron red — unmistakably hostile, never reads as the player's blue
+// Keep the model's OWN baseColor texture. The glTF material defaults to
+// metalness=1, which makes it mirror the sky (the blue/red wash). Force it
+// non-metallic so the original livery shows through.
+function fixOriginalMaterial(root) {
+  root.traverse(nd => {
+    if (!nd.isMesh || !nd.material) return;
+    const apply = m => { m.metalness = 0; if (m.roughness == null || m.roughness > 0.98) m.roughness = 0.85; m.envMapIntensity = 0.6; m.needsUpdate = true; };
+    Array.isArray(nd.material) ? nd.material.forEach(apply) : apply(nd.material);
+  });
+}
 function makeEnemy() {
   const clone = cloneSkinned(enemyTpl);
-  clone.traverse(nd => { if (nd.isMesh) nd.material = new T.MeshStandardMaterial({ color: ENEMY_COLOR, metalness: .0, roughness: .85, envMapIntensity: .4 }); });
+  fixOriginalMaterial(clone);
   const n = normalize(clone, CFG.ENEMY.size, CFG.ENEMY.rot);
   const obj = n.pivot; enableShadows(obj, true, false);
-  // spawn far out on a ring around the airship
-  const ang = rnd(0, Math.PI * 2), R = rnd(110, 150);
-  const sp = airship.position.clone().add(V3(Math.cos(ang) * R, rnd(-6, 22), Math.sin(ang) * R));
+  // spawn far out on a ring around the airship, all heading inbound
+  const ang = rnd(0, Math.PI * 2), R = rnd(95, 135);
+  const sp = airship.position.clone().add(V3(Math.cos(ang) * R, rnd(-4, 18), Math.sin(ang) * R));
   obj.position.copy(sp);
+  faceForward(obj, airship.position); // nose inbound from the start
   scene.add(obj);
   const e = {
-    obj, hp: CFG.ENEMY_HP, state: 'approach', vel: V3(), speed: rnd(20, 27),
-    fireT: rnd(.3, 1), loopT: 0, loopAxis: null, pursuer: Math.random() < 0.4, passes: 0,
-    target: airship, mesh: findMainMesh(clone), color: 0x8a8275, alive: true,
+    obj, hp: CFG.ENEMY_HP, state: 'approach', speed: rnd(22, 30),
+    fireT: rnd(.3, 1), pursuer: Math.random() < 0.45, passes: 0, roll: 0, alive: true, target: 'ship',
   };
   enemies.push(e);
 }
-function findMainMesh(root) { let best = null, max = 0; root.traverse(n => { if (n.isMesh) { const c = n.geometry.attributes.position.count; if (c > max) { max = c; best = n; } } }); return best; }
 function cloneSkinned(o) { return o.clone(true); }
+// Orient an object so its NOSE (-Z) points at target. (Object3D.lookAt points +Z,
+// which would aim the tail at the target.)
+const _faceM = new T.Matrix4();
+function faceForward(obj, target) {
+  _faceM.lookAt(obj.position, target, _up); // Matrix4.lookAt: -Z column points obj->target
+  obj.quaternion.setFromRotationMatrix(_faceM);
+}
 
-function steer(e, targetPos, dt, turnRate) {
+// Smoothly rotate the plane so its nose (-Z) turns toward `desired` and fly forward.
+// Adds a little bank (roll) into the turn for life. Returns nothing; always moves.
+const _fwd = new T.Vector3(), _newFwd = new T.Vector3(), _lookM = new T.Matrix4(), _lookQ = new T.Quaternion(), _up = V3(0, 1, 0), _ZERO = new T.Vector3();
+function flyToward(e, desired, dt, turnRate) {
   const obj = e.obj;
-  const desired = targetPos.clone().sub(obj.position); const dist = desired.length();
-  if (dist > 1e-3) desired.multiplyScalar(1 / dist);
-  // current forward (-Z of object)
-  const fwd = V3(0, 0, -1).applyQuaternion(obj.quaternion);
-  const newFwd = fwd.lerp(desired, clamp(turnRate * dt, 0, 1)).normalize();
-  const look = obj.position.clone().add(newFwd);
-  obj.lookAt(look);
-  obj.position.addScaledVector(newFwd, e.speed * dt);
-  return dist;
+  _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
+  _newFwd.copy(_fwd).lerp(desired, clamp(turnRate * dt, 0, 1));
+  if (_newFwd.lengthSq() < 1e-6) _newFwd.copy(_fwd); else _newFwd.normalize();
+  // bank into the turn: how much we're turning left/right
+  const turnSign = Math.sign(_fwd.clone().cross(_newFwd).dot(_up));
+  const turnMag = _fwd.angleTo(_newFwd);
+  e.roll = lerp(e.roll, clamp(-turnSign * turnMag * 8, -0.9, 0.9), clamp(4 * dt, 0, 1));
+  // build orientation whose -Z (nose) points along _newFwd, then roll around it
+  _lookM.lookAt(_ZERO, _newFwd, _up); // Matrix4.lookAt: -Z column points toward target
+  _lookQ.setFromRotationMatrix(_lookM);
+  const rollQ = new T.Quaternion().setFromAxisAngle(_newFwd, e.roll);
+  obj.quaternion.copy(rollQ.multiply(_lookQ));
+  obj.position.addScaledVector(_newFwd, e.speed * dt);
 }
 
 function updateEnemies(dt) {
   ui.enemyCount.textContent = enemies.length;
+  const ship = airship.position;
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i]; if (!e.alive) continue;
     const obj = e.obj;
-    const tgt = (e.pursuer && e.passes >= 1) ? player.position : airship.position;
-    e.target = (e.pursuer && e.passes >= 1) ? 'player' : 'ship';
+    const distShip = obj.position.distanceTo(ship);
 
-    if (e.state === 'approach') {
-      const dist = steer(e, tgt, dt, 1.4);
-      // firing — closer = more accurate / more frequent
+    if (e.state === 'chase') {
+      // pursuer that broke off: hunt the player and shoot at them
+      const desired = player.position.clone().sub(obj.position); const d = desired.length(); desired.normalize();
+      flyToward(e, desired, dt, 1.3);
       e.fireT -= dt;
-      const near = clamp(1 - dist / 120, 0, 1);
-      if (e.fireT <= 0 && dist < 120) {
-        e.fireT = lerp(1.4, 0.4, near);
-        enemyFire(e, tgt, near);
-      }
-      if (dist < 26) { e.state = 'pass'; e.passT = rnd(0.7, 1.1); }
+      const near = clamp(1 - d / 90, 0, 1);
+      if (e.fireT <= 0 && d < 90) { e.fireT = lerp(1.6, 0.45, near); e.target = 'player'; enemyFire(e, player.position, near); }
+      // if we overshoot the player badly, swing back around
+      if (d > 140) { /* keep chasing, flyToward will curve back */ }
+    } else if (e.state === 'approach') {
+      // run in on the airship, firing more accurately the closer we get
+      const desired = ship.clone().sub(obj.position).normalize();
+      flyToward(e, desired, dt, 1.1);
+      e.fireT -= dt;
+      const near = clamp(1 - distShip / 110, 0, 1);
+      if (e.fireT <= 0 && distShip < 110) { e.fireT = lerp(1.5, 0.4, near); e.target = 'ship'; enemyFire(e, ship, near); }
+      if (distShip < 24) e.state = 'pass';
     } else if (e.state === 'pass') {
-      // keep flying straight through past the target
-      const fwd = V3(0, 0, -1).applyQuaternion(obj.quaternion);
-      obj.position.addScaledVector(fwd, e.speed * dt);
-      e.passT -= dt;
-      if (e.passT <= 0) { e.state = 'loop'; e.loopProg = 0; e.passes++; }
-    } else if (e.state === 'loop') {
-      // vertical loop (мёртвая петля): pitch the nose up & over a full circle
-      e.loopProg += dt / 2.2; // ~2.2s loop
-      const right = V3(1, 0, 0).applyQuaternion(obj.quaternion);
-      obj.rotateOnWorldAxis(right, (Math.PI * 2) * (dt / 2.2));
-      const fwd = V3(0, 0, -1).applyQuaternion(obj.quaternion);
-      obj.position.addScaledVector(fwd, e.speed * dt);
-      if (e.loopProg >= 1) { e.state = 'approach'; }
+      // punch straight through, past the airship
+      _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
+      e.roll = lerp(e.roll, 0, clamp(4 * dt, 0, 1));
+      const rollQ = new T.Quaternion().setFromAxisAngle(_fwd, e.roll);
+      // keep current heading (no steer) — just fly forward
+      obj.position.addScaledVector(_fwd, e.speed * dt);
+      if (distShip > 55) { e.passes++; e.state = (e.pursuer && e.passes >= 1) ? 'chase' : 'turn'; }
+    } else if (e.state === 'turn') {
+      // out beyond the airship: bank hard and come back around for another run
+      const desired = ship.clone().sub(obj.position).normalize();
+      flyToward(e, desired, dt, 1.9);
+      _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
+      if (_fwd.dot(desired) > 0.75) e.state = 'approach'; // now pointing back at the airship
     }
 
-    // keep them from sinking through the floor
-    if (obj.position.y < CFG.FLOOR + 6) obj.position.y = CFG.FLOOR + 6;
-    if (obj.position.y > 70) obj.position.y = 70;
-    // despawn if wandered absurdly far
-    if (obj.position.distanceTo(airship.position) > 320) { obj.position.copy(airship.position).add(randDir().multiplyScalar(130)); e.state = 'approach'; }
+    if (obj.position.y < CFG.FLOOR + 8) obj.position.y = CFG.FLOOR + 8;
+    if (obj.position.y > 80) obj.position.y = 80;
+    // if a chaser/turner wanders too far, fold it back into an approach
+    if (distShip > 260) { faceForward(obj, ship); e.state = "approach"; }
   }
 }
 
@@ -566,8 +595,9 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 // debug helpers (only with ?debug) — verify Voronoi+Rapier death without aiming
 if (location.search.includes('debug')) {
-  window.__spawnClose = () => { makeEnemy(); const e = enemies[enemies.length - 1]; e.obj.position.copy(NEST).addScaledVector(NEST_FWD, 30).add(V3(rnd(-6, 6), rnd(2, 8), 0)); e.pursuer = false; return e; };
+  window.__spawnClose = () => { makeEnemy(); const e = enemies[enemies.length - 1]; const f = V3(0, 0, -1).applyQuaternion(gunBase.quat); e.obj.position.copy(gunBase.pos).addScaledVector(f, 30).add(V3(rnd(-6, 6), rnd(2, 8), 0)); e.pursuer = false; return e; };
   window.__killAll = () => { for (const e of enemies.slice()) if (e.alive) killEnemy(e, e.obj.position.clone()); };
+  window.__state = () => ({ mode: G.mode, player: player.position.toArray().map(x => +x.toFixed(1)), cam: camera.position.toArray().map(x => +x.toFixed(1)), enemies: enemies.map(e => ({ s: e.state, p: e.obj.position.toArray().map(x => +x.toFixed(1)) })) });
 }
 addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] = false; });
 
@@ -605,14 +635,17 @@ function toggleMode() {
   if (!gunMode && pointerLocked) document.exitPointerLock();
   gun.visible = gunMode;
   if (gunMode) {
-    // park the plane at the nest, facing forward; you sit behind its cockpit
-    player.position.copy(NEST);
-    player.quaternion.identity();
+    // freeze the plane exactly where it is; the gun aims where the nose points
+    gunBase.pos.copy(player.position);
+    gunBase.quat.copy(player.quaternion);
     G.yaw = 0; G.pitch = 0;
   } else {
-    // entering flight: align flight rig to where the plane currently sits
+    // entering flight: resume flying from the plane's current pose
     flight.pos.copy(player.position);
-    flight.yaw = Math.PI; flight.pitch = 0; flight.roll = 0;
+    const f = V3(0, 0, -1).applyQuaternion(player.quaternion);
+    flight.yaw = Math.atan2(-f.x, -f.z); // heading from current forward
+    flight.pitch = Math.asin(clamp(f.y, -1, 1));
+    flight.roll = 0;
   }
 }
 function reload() {
@@ -631,18 +664,20 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
-const _camRig = new T.Vector3();
+const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
 function updateGunCamera(dt) {
-  // Camera sits just behind & above the parked plane's cockpit; you man the gun.
-  // The plane stays put (you can't move); only the view + gun swivel in a ±45° cone.
-  // sit in the cockpit: just above & barely behind the plane's centre, looking forward
-  _camRig.copy(NEST).addScaledVector(NEST_FWD, 0.1).add(V3(0, 1.1, 0));
+  // You sit in the plane's cockpit (frozen pose); the gun + view swivel within a
+  // ±45° cone around the direction the nose is pointing. No teleport — you stay
+  // exactly where the plane is.
+  const cockpit = V3(0, 0.9, 0.35).applyQuaternion(gunBase.quat); // local: up + slightly behind cockpit
+  _camRig.copy(gunBase.pos).add(cockpit);
   camera.position.lerp(_camRig, Math.min(1, 12 * dt)); // quick settle on mode switch
-  // aim orientation: base faces NEST_FWD (-Z), offset by yaw/pitch within the cone — direct = responsive
-  const e = new T.Euler(G.pitch, G.yaw, 0, 'YXZ');
-  camera.quaternion.setFromEuler(e);
-  camera.position.x += (Math.random() - .5) * shake * .35;
-  camera.position.y += (Math.random() - .5) * shake * .35;
+  // aim = base nose orientation, offset by yaw/pitch within the cone
+  _coneE.set(G.pitch, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
+  _aimQ.copy(gunBase.quat).multiply(_coneQ);
+  camera.quaternion.copy(_aimQ);
+  camera.position.x += (Math.random() - .5) * shake * .3;
+  camera.position.y += (Math.random() - .5) * shake * .3;
 
   // gun mounted in front of the cockpit, swivelling with the aim
   const fwd = V3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -695,11 +730,11 @@ function updateSpawns(dt) {
 function startGame() {
   ui.start.classList.add('hidden');
   G.running = true;
-  // fixed defending station: off to the side of and below the airship, facing it
-  NEST.copy(airship.position).add(V3(14, -4, 26));
-  player.position.copy(NEST); player.quaternion.identity();
-  flight.pos.copy(NEST);
-  G.mode = 'flight'; toggleMode(); // flip to gun + sync hint
+  // start near the airship, nose pointed at it; gun will aim where the nose looks
+  player.position.copy(airship.position).add(V3(16, -2, 30));
+  faceForward(player, airship.position);
+  flight.pos.copy(player.position);
+  G.mode = 'flight'; toggleMode(); // flip to gun + sync hint (freezes current pose)
   ui.reticle.classList.add('show');
   for (let i = 0; i < 3; i++) makeEnemy();
 }

@@ -22,10 +22,12 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { installQuizRoutes } = require('./quiz-generation.cjs');
 
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '8kb' }));
+installQuizRoutes(app);
 
 const PORT = process.env.PORT || 3000;
 const ASSET_DIR = path.join(__dirname, 'assets');
@@ -78,6 +80,15 @@ app.get('/bundle.js', (req, res) => {
   res.type('application/javascript');
   res.sendFile(path.join(PUBLIC_DIR, 'bundle.js'));
 });
+
+app.use('/js', express.static(path.join(PUBLIC_DIR, 'js'), {
+  etag: false,
+  maxAge: 0,
+  fallthrough: false,
+  setHeaders(res) {
+    res.set('Cache-Control', 'no-store');
+  },
+}));
 
 // ---- token-gated assets ----
 app.get('/asset/:name', (req, res) => {

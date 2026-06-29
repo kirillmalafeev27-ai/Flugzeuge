@@ -1385,6 +1385,11 @@ async function startGame() {
     if (e?.obj) scene.remove(e.obj);
   }
   clearTransients();         // drop leftover tracers/debris/smoke from the last round
+  // A loss hides the airship/plane and fractures them into debris; bring the
+  // intact models back so an in-place restart isn't an empty sky.
+  airship.visible = true;
+  player.visible = true;
+  if (propeller) propeller.visible = true;
   G.running = true;
   G.starting = false;
   G.over = false; G.endDisplayed = false; G.cinematic = null; G.evasion = 0; G.spawned = 0;

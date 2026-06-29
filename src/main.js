@@ -686,19 +686,19 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
-// Auto-patrol: the plane keeps flying (you can't steer it). It cruises and gently
-// banks to orbit the airship it's defending.
+// Auto-pilot: the plane just flies STRAIGHT ahead (you can't steer it). The only
+// time it turns is a slow bank back toward the airship if it has wandered far —
+// otherwise it holds a dead-straight heading (no constant sideways drift).
 function updateGunFlight(dt) {
   const obj = player;
   _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
-  const toShip = airship.position.clone().sub(obj.position); toShip.y *= 0.25;
-  const r = Math.max(0.001, toShip.length());
-  const radial = toShip.clone().multiplyScalar(1 / r);
-  let tangent = new T.Vector3().crossVectors(_up, radial).normalize(); // circle the airship
-  if (tangent.dot(_fwd) < 0) tangent.negate();                          // keep turn direction
-  const radialBias = clamp((r - 70) / 60, -0.6, 0.6);                   // hold a ~70u radius
-  const desired = tangent.addScaledVector(radial, radialBias).normalize();
-  _newFwd.copy(_fwd).lerp(desired, clamp(0.6 * dt, 0, 1));
+  const toShip = airship.position.clone().sub(obj.position);
+  const r = toShip.length();
+  let desired = _fwd;                          // default: keep flying straight
+  if (r > 120) {                               // strayed too far → ease back toward the fight
+    desired = _fwd.clone().lerp(toShip.normalize(), 0.5).normalize();
+  }
+  _newFwd.copy(_fwd).lerp(desired, clamp(0.9 * dt, 0, 1));
   if (_newFwd.lengthSq() < 1e-6) _newFwd.copy(_fwd); else _newFwd.normalize();
   const turnSign = Math.sign(_fwd.clone().cross(_newFwd).dot(_up));
   player._roll = lerp(player._roll || 0, clamp(-turnSign * _fwd.angleTo(_newFwd) * 6, -0.28, 0.28), clamp(3 * dt, 0, 1));

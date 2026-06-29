@@ -327,9 +327,8 @@ function loadGLB(name) { return new Promise((res, rej) => gltfLoader.load('/asse
 function loadHDR(name) { return new Promise((res, rej) => hdrLoader.load('/asset/' + name, t => res(t), undefined, rej)); }
 
 /* ============================ SOUND =============================== */
-// Four event sounds, bound by their file names:
+// Three event sounds, bound by their file names:
 //   gun_fire.mp3   -> your machine gun while you hold fire   (machine_gun_fire_imp)
-//   enemy_fire.mp3 -> an enemy plane firing a burst          (ww_1_plane_machine_g)
 //   engine.mp3     -> your plane's engine drone (ambient)    (ww1_plane_sound)
 //   wind.mp3       -> wind over the airship (ambient)         (wind_sound)
 const listener = new T.AudioListener(); camera.add(listener);
@@ -339,11 +338,10 @@ function loadAudioBuffer(name) {
   return new Promise(res => audioLoader.load('/asset/' + name, b => res(b), undefined, () => res(null)));
 }
 async function loadSounds() {
-  const [gun, enemy, engine, wind] = await Promise.all([
-    loadAudioBuffer('gun_fire.mp3'), loadAudioBuffer('enemy_fire.mp3'),
-    loadAudioBuffer('engine.mp3'), loadAudioBuffer('wind.mp3'),
+  const [gun, engine, wind] = await Promise.all([
+    loadAudioBuffer('gun_fire.mp3'), loadAudioBuffer('engine.mp3'), loadAudioBuffer('wind.mp3'),
   ]);
-  SND.buffers = { gun, enemy, engine, wind };
+  SND.buffers = { gun, engine, wind };
   const mkLoop = (buf, vol) => { if (!buf) return null; const a = new T.Audio(listener); a.setBuffer(buf); a.setLoop(true); a.setVolume(vol); return a; };
   SND.engineLoop = mkLoop(engine, 0);
   SND.windLoop = mkLoop(wind, 0);
@@ -369,18 +367,6 @@ function updateAudio(dt) {
     if (wantGun && !SND.gunLoop.isPlaying) SND.gunLoop.play();
     else if (!wantGun && SND.gunLoop.isPlaying) SND.gunLoop.stop();
   }
-}
-// Overlapping one-shot for each enemy burst, quieter the further away it is.
-function playEnemyShot(worldPos) {
-  const buf = SND.buffers.enemy; const ctx = listener.context;
-  if (!buf || !ctx || ctx.state !== 'running') return;
-  const dist = worldPos ? camera.position.distanceTo(worldPos) : 40;
-  const vol = clamp(26 / Math.max(8, dist), 0, 1) * 0.5;
-  if (vol < 0.03) return;
-  const src = ctx.createBufferSource(); src.buffer = buf;
-  const g = ctx.createGain(); g.gain.value = vol;
-  src.connect(g).connect(listener.getInput());
-  try { src.start(); } catch (_) {}
 }
 
 /* wrap a loaded scene in a centred, scaled pivot with given target size */
@@ -1049,7 +1035,6 @@ function enemyFire(e, targetPos, near) {
     }
   });
   muzzleFlash(muzzle, dir);
-  playEnemyShot(muzzle);
 }
 
 /* ============================ DAMAGE / DEATH ====================== */

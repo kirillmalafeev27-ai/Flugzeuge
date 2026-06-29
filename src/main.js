@@ -48,8 +48,12 @@ const CFG = {
   MAX_PURSUERS: 2,         // at most this many may peel off to chase you
   MAX_ENEMIES_BASE: 6,     // how many fighters in the sky early on
   MAX_ENEMIES_CAP: 12,     // hard cap as the wave ramps
-  SHIP_HIT_CHANCE: 0.04,
-  SHIP_KILL_RATIO_TARGET: 0.40,
+  // Airship survival model (see shipDamageCap): if the player kills nobody the
+  // wave can deliver SHIP_DMG_BUDGET × the hull (140% → guaranteed loss). Killing
+  // SHIP_SURVIVE_KILL of the enemies that ever spawn (41%) is the break-even line;
+  // above it the airship lives. The first sessions are eased in (see difficulty()).
+  SHIP_DMG_BUDGET: 1.40,
+  SHIP_SURVIVE_KILL: 0.41,
   CHASER_STANDOFF: 62,
 };
 
@@ -342,6 +346,8 @@ const G = {
   mode: 'gun', running: false, over: false,
   shipHp: CFG.SHIP_HP, meHp: CFG.PLAYER_HP, ammo: CFG.AMMO_START,
   kills: 0, spawned: 0, timeLeft: CFG.ROUND_TIME,
+  gameIndex: -1,            // ++ each startGame; persists across a session so the
+                           // first runs can be eased in (see difficulty())
   yaw: 0, pitch: 0,        // gun aim within cone
   quizActive: false, quizPausesCombat: false, actionPending: false, starting: false,
   evasion: 0, playerSmokeT: 0, cinematic: null, endDisplayed: false,
@@ -839,45 +845,63 @@ function enemyFire(e, targetPos, near) {
   const muzzle = e.obj.position.clone().add(V3(0, 0, -1).applyQuaternion(e.obj.quaternion).multiplyScalar(CFG.ENEMY.size * .6));
   const intendedTarget = targetPos.clone();
   const targetKind = e.target;
-  let aimPoint = targetPos.clone();
-  let shipHit = false, defenseDeficit = 0, alivePressure = 0;
+  const aimPoint = targetPos.clone();
   if (targetKind === 'ship') {
-    const totalThreat = Math.max(1, G.spawned || (G.kills + enemies.length));
-    const killRatio = G.kills / totalThreat;
-    defenseDeficit = clamp((CFG.SHIP_KILL_RATIO_TARGET - killRatio) / CFG.SHIP_KILL_RATIO_TARGET, 0, 1);
-    alivePressure = clamp(enemies.length / CFG.MAX_ENEMIES_CAP, 0, 1);
-    const hitChance = clamp(CFG.SHIP_HIT_CHANCE + near * 0.14 + defenseDeficit * 0.06 + alivePressure * 0.03, 0.04, 0.36);
-    shipHit = Math.random() < hitChance;
-    if (shipHit) {
-      aimPoint.add(V3(rnd(-9, 9), rnd(-3.2, 3.2), rnd(-5, 5)));
-    } else {
-      const miss = lerp(30, 18, near);
-      const missDir = V3(rnd(-1, 1), rnd(-0.35, 0.35), rnd(-1, 1));
-      if (missDir.lengthSq() < 1e-4) missDir.set(1, 0, 0);
-      aimPoint.add(missDir.normalize().multiplyScalar(rnd(miss, miss * 1.45)));
-    }
+    // tight scatter so the tracer visibly lands ON the hull — every shot that
+    // reaches the airship counts; how much HP it removes is governed by the
+    // session damage budget (shipDamageCap), not by a per-shot dice roll.
+    aimPoint.add(V3(rnd(-4, 4), rnd(-2.4, 2.4), rnd(-4, 4)));
   }
   const aimVector = aimPoint.clone().sub(muzzle);
   const dir = aimVector.clone().normalize();
   if (targetKind === 'player') {
     dir.x += rnd(-1, 1) * .03; dir.y += rnd(-1, 1) * .03; dir.normalize();
   }
-  const dist = aimVector.length() + (targetKind === 'ship' ? 0 : 6);
+  const dist = aimVector.length() + (targetKind === 'ship' ? 4 : 6);
   spawnTracer(muzzle, dir, dist, false, (impactPoint) => {
     if (G.over) return;
     if (targetKind === 'player') {
       const movementMiss = clamp(1 - player.position.distanceTo(intendedTarget) / 18, 0.15, 1);
       const evasionPenalty = clamp(1 - G.evasion * 0.68, 0.25, 1);
       if (Math.random() < near * 0.4 * movementMiss * evasionPenalty) damagePlayer(Math.round(rnd(2, 5)));
-    } else if (shipHit) {
-      const damage = Math.round(rnd(2, 4) + near * 0.9 + defenseDeficit * 0.9 + alivePressure * 0.6);
-      damageShip(damage, impactPoint);
+    } else {
+      // a hull hit ALWAYS bites — the airship's prochnost' drops on contact.
+      applyShipHit(Math.round(rnd(3, 6) + near * 2), impactPoint);
     }
   });
   muzzleFlash(muzzle, dir);
 }
 
 /* ============================ DAMAGE / DEATH ====================== */
+// Per-session difficulty ramp. The first run of a session is forgiving so a new
+// player can find their feet; by the third run the full 140% / 41% balance is on.
+function difficulty() {
+  const g = G.gameIndex;
+  if (g <= 0) return { budget: 1.10, surviveKill: 0.22 }; // 1st run: gentle
+  if (g === 1) return { budget: 1.25, surviveKill: 0.32 }; // 2nd run: ramping up
+  return { budget: CFG.SHIP_DMG_BUDGET, surviveKill: CFG.SHIP_SURVIVE_KILL }; // 3rd+: full
+}
+// The most damage the wave is allowed to have inflicted on the hull SO FAR.
+// frac(killRatio) is a line: budget×HP at 0 kills, exactly HP at the survive
+// threshold, so falling below the threshold lets total damage exceed the hull
+// (loss) while clearing it keeps the airship alive. Eased in over the round so
+// the airship is never deleted in the opening seconds.
+function shipDamageCap() {
+  const ratio = G.kills / Math.max(1, G.spawned);
+  const d = difficulty();
+  const slope = (d.budget - 1) / d.surviveKill;            // crosses 1.0 at surviveKill
+  const frac = clamp(d.budget - slope * ratio, 0, d.budget);
+  const timeProg = clamp((CFG.ROUND_TIME - G.timeLeft) / CFG.ROUND_TIME, 0, 1);
+  const pacing = 0.12 + 0.88 * timeProg;                   // spread the budget across the round
+  return CFG.SHIP_HP * frac * pacing;
+}
+function applyShipHit(raw, at) {
+  if (G.over) return;
+  const dealt = CFG.SHIP_HP - G.shipHp;
+  const room = shipDamageCap() - dealt;                    // budget not yet spent
+  if (room < 0.5) return;                                  // defending well: wave is held off for now
+  damageShip(Math.max(1, Math.round(Math.min(raw, room))), at);
+}
 function damageShip(d, at) {
   if (G.over) return;
   G.shipHp = Math.max(0, G.shipHp - d);
@@ -1230,6 +1254,7 @@ function updateSpawns(dt) {
 async function startGame() {
   if (G.starting || G.running) return;
   G.starting = true;
+  G.gameIndex++;             // 0 = first run of the session, used by difficulty()
   ui.startBtn.disabled = true;
   ui.startBtn.textContent = 'Готовлю задания...';
   try {

@@ -69,6 +69,49 @@
   button.act:active{transform:translateY(0)}
   button.act.warm{color:var(--accent);border-color:rgba(255,122,47,.45)}
   button.act .k{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:7px}
+  [hidden]{display:none!important}
+
+  .start-config{width:min(940px,calc(100vw - 36px));display:grid;
+    grid-template-columns:minmax(340px,1.15fr) minmax(260px,.85fr);gap:14px;align-items:stretch}
+  .learning-menu{width:100%;height:100%;display:grid;gap:13px;
+    padding:14px 16px;border:1px solid var(--line);border-radius:12px;
+    background:rgba(255,255,255,.045);text-align:left}
+  .learning-head{display:flex;justify-content:space-between;gap:12px;align-items:start;
+    padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .learning-kicker,.control-label,.field span{font-family:var(--mono);font-size:10px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .learning-title{font-size:17px;font-weight:700;color:var(--ink);margin-top:2px}
+  .learning-status{font-family:var(--mono);font-size:11px;color:var(--muted);
+    border:1px solid var(--line);border-radius:999px;padding:5px 8px;white-space:nowrap}
+  .learning-menu[data-status="online"] .learning-status{color:var(--good);border-color:rgba(70,211,154,.35)}
+  .learning-menu[data-status="loading"] .learning-status{color:#ffd28a;border-color:rgba(255,210,138,.35)}
+  .learning-controls{display:grid;grid-template-columns:minmax(230px,1fr) minmax(190px,.72fr);gap:12px}
+  .control-block,.field{display:grid;gap:7px}
+  .field select{width:100%;min-height:39px;border-radius:9px;border:1px solid var(--line);
+    background:rgba(6,9,16,.78);color:var(--ink);padding:0 10px;font:inherit;color-scheme:dark}
+  .field select option{background:#0b0f19;color:var(--ink)}
+  .segmented{display:grid;gap:4px;padding:4px;border-radius:9px;border:1px solid var(--line);
+    background:rgba(255,255,255,.055)}
+  .level-row{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .segmented button{min-width:0;border:0;border-radius:7px;background:transparent;color:var(--ink);
+    padding:9px 8px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+  .segmented button:hover{background:rgba(255,255,255,.08)}
+  .segmented button.selected{background:linear-gradient(180deg,#ffd28a,var(--accent));color:#0a0d16}
+  .story-choice{height:100%;display:grid;gap:11px;padding:14px 16px;border:1px solid var(--line);
+    border-radius:12px;background:rgba(255,255,255,.045);text-align:left}
+  .story-choice .story-head{display:flex;justify-content:space-between;gap:10px;align-items:start;
+    padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .story-choice .story-kicker,.story-choice label span{font-family:var(--mono);font-size:10px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .story-choice .story-name{font-size:17px;font-weight:700;color:var(--ink);margin-top:2px}
+  .story-choice .story-progress{font-family:var(--mono);font-size:11px;color:var(--good);
+    border:1px solid rgba(70,211,154,.28);border-radius:999px;padding:5px 8px;white-space:nowrap}
+  .story-choice label{display:grid;gap:7px}
+  .story-choice select{width:100%;min-height:39px;border-radius:9px;border:1px solid var(--line);
+    background:rgba(6,9,16,.78);color:var(--ink);padding:0 10px;font:inherit;color-scheme:dark}
+  .story-choice select option{background:#0b0f19;color:var(--ink)}
+  .story-choice p{max-width:none;color:#cfd6e8;font-size:13px;line-height:1.45}
+  .story-next{font-size:12px;color:var(--muted);line-height:1.35}
 
   /* ---- bottom hint ---- */
   .hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9;text-align:center;
@@ -109,21 +152,57 @@
     align-items:center;justify-content:center;gap:18px;text-align:center;
     background:radial-gradient(120% 120% at 50% 30%,rgba(8,11,20,.55),rgba(5,7,14,.92));
     backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+  #start{justify-content:flex-start;overflow:auto;padding:22px 18px}
   .overlay.hidden{display:none}
   .overlay h1{font-size:42px;margin:0;font-weight:700;letter-spacing:-.02em}
   .overlay p{margin:0;color:var(--muted);max-width:440px;line-height:1.5;font-size:14px}
   .overlay .big{font-size:64px;line-height:1}
-  .overlay button{font:inherit;font-size:16px;font-weight:600;color:#0a0d16;
+  .overlay>button{font:inherit;font-size:16px;font-weight:600;color:#0a0d16;
     background:linear-gradient(180deg,#ffd28a,var(--accent));border:0;border-radius:14px;
     padding:14px 30px;cursor:pointer;box-shadow:0 14px 40px -14px var(--accent);transition:.15s}
-  .overlay button:hover{transform:translateY(-2px)}
+  .overlay>button:hover{transform:translateY(-2px)}
   .spin{width:46px;height:46px;border-radius:50%;border:3px solid rgba(255,255,255,.15);
     border-top-color:var(--accent);animation:rot 1s linear infinite}
   @keyframes rot{to{transform:rotate(360deg)}}
   .barload{width:240px;height:6px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden}
   .barload>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd28a,var(--accent));transition:width .2s}
   .win h1{color:var(--good)} .lose h1{color:var(--bad)}
-  @media (max-width:640px){.panel{width:200px}#clock{font-size:24px}.hint{display:none}}
+  #actionQuiz{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:86;
+    width:min(620px,calc(100vw - 28px));display:grid;gap:12px;padding:16px;
+    pointer-events:auto;background:rgba(8,11,20,.94);border:1px solid rgba(255,210,138,.28);
+    border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.58);text-align:left}
+  .action-quiz-head{display:flex;justify-content:space-between;gap:12px;align-items:center;color:#ffd28a}
+  .action-quiz-head b{font-size:15px}
+  .action-quiz-head span{color:var(--good);font-family:var(--mono);font-size:11px}
+  .action-quiz-question{display:grid;gap:6px;color:#fff;font-weight:700;line-height:1.35}
+  .action-quiz-question span{color:#cfd6e8;font-weight:600}
+  .action-quiz-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .action-quiz-options button{min-height:44px;display:flex;gap:8px;align-items:center;
+    justify-content:flex-start;padding:9px 10px;border:1px solid rgba(255,210,138,.58);
+    border-radius:8px;background:rgba(62,38,18,.9);color:#ffd28a;font:800 13px/1.25 inherit;
+    text-align:left;cursor:pointer}
+  .action-quiz-options button span{flex:0 0 auto;display:grid;place-items:center;width:22px;height:22px;
+    border-radius:50%;background:rgba(255,210,138,.16);color:#fff}
+  .action-quiz-options button.correct{border-color:rgba(70,211,154,.9);background:rgba(18,72,47,.95);color:#caffdf}
+  .action-quiz-options button.wrong{border-color:rgba(255,90,77,.9);background:rgba(88,24,24,.95);color:#ffd4d0}
+  .action-quiz-options button:disabled{cursor:default}
+  .action-quiz-status{color:#cfd6e8;font-size:12px;line-height:1.35}
+  #audio-repeat{position:fixed;right:16px;top:142px;z-index:88;display:none;width:38px;height:38px;
+    border:1px solid rgba(255,210,138,.7);border-radius:50%;background:rgba(62,38,18,.92);
+    color:#ffd28a;font-weight:900;cursor:pointer}
+  #audio-repeat.on{display:block}
+  #audio-repeat.loading{opacity:.58}
+  .story-card{width:min(620px,calc(100vw - 34px));padding:14px 16px;border-radius:12px;
+    border:1px solid rgba(70,211,154,.28);background:rgba(70,211,154,.08);text-align:left}
+  .story-card.hidden{display:none}
+  .story-card .story-kicker{font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--good);margin-bottom:7px}
+  .story-card b{display:block;color:#fff;margin-bottom:6px}
+  .story-card p{max-width:none;color:#cfd6e8;font-size:13px}
+  @media (max-width:640px){
+    .panel{width:200px}#clock{font-size:24px}.hint{display:none}
+    .start-config,.learning-controls,.action-quiz-options{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -177,7 +256,11 @@
   <h1>Оборона дирижабля</h1>
   <p>Удержи дирижабль <b>2 минуты</b>. Истребители заходят на него волнами, бьют тем точнее, чем ближе подлетают, делают петлю и идут на второй круг. Часть из них отделяется и охотится за тобой.<br><br>
   <b>Пулемёт</b> — стоишь на месте, целишься (обзор ±45°) и стреляешь.
-  <b>Полёт</b> — свободно летаешь, но не стреляешь. Переключение — <kbd>TAB</kbd>.</p>
+  <b>Полёт</b> — свободно летаешь, но не стреляешь. Перед боем выбери немецкую тему: перезарядка и смена режима требуют правильного ответа.</p>
+  <div class="start-config">
+    <div id="learningHost"></div>
+    <div id="storyChoice" class="story-choice"></div>
+  </div>
   <button id="startBtn">В бой</button>
 </div>
 
@@ -186,10 +269,12 @@
   <div class="big" id="endIcon">🏆</div>
   <h1 id="endTitle">Победа</h1>
   <p id="endMsg"></p>
+  <div id="storyCard" class="story-card hidden"></div>
   <button id="againBtn">Ещё раз</button>
 </div>
 
 <script>window.__T="__GAME_TOKEN__";</script>
+<script src="/js/learning.js"></script>
 <script src="/bundle.js"></script>
 </body>
 </html>

@@ -360,7 +360,15 @@ function playOneShot(buf, vol) {
   try { src.start(); } catch (_) {}
 }
 // Bullet impact on the airship/your plane, attenuated by distance to the camera.
-function playHit(worldPos, baseVol = 0.7) {
+// Hull hits land in fast bursts, so they're rate-limited (minGap) to avoid a
+// constant rattle; pass minGap 0 for rare, must-hear events (your own plane).
+let _lastHitAt = -1;
+function playHit(worldPos, baseVol = 0.4, minGap = 0.16) {
+  const ctx = listener.context;
+  if (!ctx || ctx.state !== 'running') return;
+  const now = ctx.currentTime;
+  if (now - _lastHitAt < minGap) return;
+  _lastHitAt = now;
   let vol = baseVol;
   if (worldPos) vol = baseVol * clamp(34 / Math.max(8, camera.position.distanceTo(worldPos)), 0, 1);
   playOneShot(SND.buffers.hit, vol);
@@ -1089,7 +1097,7 @@ function damageShip(d, at) {
   G.shipHp = Math.max(0, G.shipHp - d);
   setShipHp();
   impact((at || airship.position).clone().add(randDir().multiplyScalar(3)).setY(airship.position.y + rnd(-3, 3)), V3(0, 1, 0), 1.1);
-  playHit(at || airship.position);          // bullet striking the hull
+  playHit(at || airship.position);          // bullet striking the hull (rate-limited, quieter)
   if (G.shipHp <= 0) cinematicLoss('ship', 'Дирижабль уничтожен.');
 }
 function damagePlayer(d) {
@@ -1097,7 +1105,7 @@ function damagePlayer(d) {
   G.meHp = Math.max(0, G.meHp - d); setMeHp();
   ui.dmg.style.opacity = clamp(d / 8, .3, 1); setTimeout(() => ui.dmg.style.opacity = 0, 120);
   shake = Math.min(1.4, shake + .25);
-  playHit(null, 0.8);                        // a round hitting your own plane (close, full)
+  playHit(null, 0.75, 0);                    // a round hitting your own plane (rare, always heard)
   if (G.meHp <= 0) cinematicLoss('player', 'Твой борт сбит.');
 }
 function killEnemy(e, at) {

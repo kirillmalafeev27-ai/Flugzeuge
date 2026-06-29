@@ -1424,9 +1424,11 @@ function updateFlight(dt) {
   const yawIn = ((keys.KeyE || keys.ArrowRight) ? 1 : 0) - ((keys.KeyQ || keys.ArrowLeft) ? 1 : 0);
   const maneuver = Math.min(1, (Math.abs(pitchIn) + Math.abs(rollIn) + Math.abs(yawIn)) / 2);
   G.evasion = clamp(G.evasion + maneuver * dt * 1.5 - (maneuver ? 0 : dt * 0.75), 0, 1);
-  flight.pitch += pitchIn * 2.05 * dt;
-  flight.roll = lerp(flight.roll, -rollIn * 0.72, clamp(7 * dt, 0, 1));
-  flight.yaw -= (yawIn * 1.65 + rollIn * 1.05) * dt; // right key turns right, left key turns left
+  // heavier handling: slower pitch/yaw rates and a lazier bank so the plane
+  // doesn't whip around — it banks and comes around more gradually.
+  flight.pitch += pitchIn * 1.35 * dt;
+  flight.roll = lerp(flight.roll, -rollIn * 0.66, clamp(4.5 * dt, 0, 1));
+  flight.yaw -= (yawIn * 1.05 + rollIn * 0.68) * dt; // right key turns right, left key turns left
   flight.pitch = clamp(flight.pitch, -1.1, 1.1);
   const throttle = (keys.ShiftLeft || keys.ShiftRight ? 1 : 0) - (keys.ControlLeft || keys.ControlRight ? 1 : 0);
   flight.speed = clamp(flight.speed + throttle * 8 * dt, 4.5, 27);

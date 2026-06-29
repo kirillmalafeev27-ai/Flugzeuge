@@ -367,6 +367,7 @@ async function boot() {
   const ag = await loadGLB('airship.glb');
   const an = normalize(ag.scene, CFG.AIRSHIP.size, CFG.AIRSHIP.rot);
   airship = an.pivot; airship.position.set(0, 10, -36);
+  airshipHalf.copy(an.dim).multiplyScalar(0.5); // collision ellipsoid half-extents
   enableShadows(airship, true, true); scene.add(airship); tick();
 
   // player plane — keep its ORIGINAL texture (just stop it mirroring the sky)
@@ -391,13 +392,16 @@ async function boot() {
   let barrelMesh = null;
   gun.traverse(n => { if (n.isMesh && /machine\s*gun/i.test(n.name)) barrelMesh = n; });
   if (barrelMesh) {
+    // Lift the barrel onto a SCENE-level pivot centred on the barrel, so we can
+    // drive its world orientation directly (the model's own parent frame is
+    // scaled/rotated and made local-axis rotation unreliable). The frame/ring
+    // stays in `gun`; only this pivot swivels.
     const box = new T.Box3().setFromObject(barrelMesh), c = new T.Vector3(); box.getCenter(c);
-    const parent = barrelMesh.parent;
-    gunBarrel = new T.Group(); gunBarrel.rotation.order = 'YXZ';
-    parent.add(gunBarrel);
-    gunBarrel.position.copy(parent.worldToLocal(c.clone()));
-    gunBarrel.attach(barrelMesh); // keep world transform; barrel now hangs off the pivot centre
+    gunBarrel = new T.Group(); scene.add(gunBarrel);
+    gunBarrel.position.copy(c);
+    gunBarrel.attach(barrelMesh); // world-preserving; barrel now centred on the pivot
   }
+  gun.visible = false; if (gunBarrel) gunBarrel.visible = false;
   tick();
 
   // enemy template
@@ -576,29 +580,42 @@ function fire() {
   const muzzle = camera.position.clone().addScaledVector(aimDir, 1.6)
     .addScaledVector(V3(0, -1, 0).applyQuaternion(camera.quaternion), 0.35);
   const dir = aimDir.clone();
-  dir.x += rnd(-1, 1) * .01; dir.y += rnd(-1, 1) * .01; dir.normalize();
+  dir.x += rnd(-1, 1) * .006; dir.y += rnd(-1, 1) * .006; dir.normalize();
 
-  // raycast against enemies
-  ray.set(muzzle, dir); ray.far = 300;
+  // Raycast from the CAMERA (the crosshair line), not the offset muzzle — otherwise
+  // the parallel-shifted ray can slip past a small enemy that's on the crosshair.
+  ray.set(camera.position, dir); ray.far = 400;
   let hitE = null, hitInfo = null;
   for (const e of enemies) {
     if (!e.alive) continue;
     const hs = ray.intersectObject(e.obj, true);
     if (hs.length) { if (!hitInfo || hs[0].distance < hitInfo.distance) { hitInfo = hs[0]; hitE = e; } }
   }
-  const dist = hitInfo ? hitInfo.distance : 260;
+  let hitPoint = null;
+  if (hitInfo) { hitPoint = hitInfo.point.clone(); }
+  else {
+    // forgiving fallback: if the crosshair sits within an enemy's angular radius,
+    // count it as a hit (covers thin/low-poly geometry the thin ray misses)
+    let best = Infinity;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const to = e.obj.position.clone().sub(camera.position); const d = to.length(); to.multiplyScalar(1 / d);
+      const ang = to.angleTo(dir), angR = Math.atan2(CFG.ENEMY.size * 0.55, d) * 1.25;
+      if (ang < angR && d < best) { best = d; hitE = e; hitPoint = camera.position.clone().addScaledVector(dir, d); }
+    }
+  }
+  const dist = hitPoint ? camera.position.distanceTo(hitPoint) : 300;
   spawnTracer(muzzle, dir, dist, true);
   muzzleFlash(muzzle, dir);
   muzzleLight.position.copy(muzzle); muzzleLightI = 2.6;
   recoil = Math.min(1.4, recoil + 1); shake = Math.min(1.0, shake + .04);
 
-  if (hitE && hitInfo) {
-    const nrm = hitInfo.face ? hitInfo.face.normal.clone().transformDirection(hitInfo.object.matrixWorld) : dir.clone().negate();
-    impact(hitInfo.point.clone(), nrm, 1);
-    const v = hitInfo.point.clone().project(camera);
+  if (hitE && hitPoint) {
+    impact(hitPoint, dir.clone().negate(), 1);
+    const v = hitPoint.clone().project(camera);
     popHM((v.x * .5 + .5) * innerWidth, (-v.y * .5 + .5) * innerHeight);
     hitE.hp -= Math.round(rnd(8, 14));
-    if (hitE.hp <= 0) killEnemy(hitE, hitInfo.point);
+    if (hitE.hp <= 0) killEnemy(hitE, hitPoint);
   }
   G.ammo--; setAmmo();
 }
@@ -616,6 +633,10 @@ if (location.search.includes('debug')) {
   window.__spawnClose = () => { makeEnemy(); const e = enemies[enemies.length - 1]; const f = V3(0, 0, -1).applyQuaternion(player.quaternion); e.obj.position.copy(player.position).addScaledVector(f, 30).add(V3(rnd(-6, 6), rnd(2, 8), 0)); e.pursuer = false; return e; };
   window.__killAll = () => { for (const e of enemies.slice()) if (e.alive) killEnemy(e, e.obj.position.clone()); };
   window.__state = () => ({ mode: G.mode, player: player.position.toArray().map(x => +x.toFixed(1)), cam: camera.position.toArray().map(x => +x.toFixed(1)), enemies: enemies.map(e => ({ s: e.state, p: e.obj.position.toArray().map(x => +x.toFixed(1)) })) });
+  window.__collNorm = () => { const l = player.position.clone().sub(airship.position); return Math.sqrt((l.x / (airshipHalf.x + PLAYER_R)) ** 2 + (l.y / (airshipHalf.y + PLAYER_R)) ** 2 + (l.z / (airshipHalf.z + PLAYER_R)) ** 2); };
+  window.__ramAirship = () => player.position.copy(airship.position);
+  window.__spawnOnAim = (d = 40) => { makeEnemy(); const e = enemies[enemies.length - 1]; const f = V3(0, 0, -1).applyQuaternion(camera.quaternion); e.obj.position.copy(camera.position).addScaledVector(f, d); e.pursuer = false; return e; };
+  window.__fire = () => fire();
 }
 addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] = false; });
 
@@ -686,27 +707,17 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
-// Auto-pilot: the plane just flies STRAIGHT ahead (you can't steer it). The only
-// time it turns is a slow bank back toward the airship if it has wandered far —
-// otherwise it holds a dead-straight heading (no constant sideways drift).
+// Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
+// auto-turns toward the airship). Use flight mode to reposition.
 function updateGunFlight(dt) {
   const obj = player;
+  player._roll = 0; // keep level — no banking, no inversion
   _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
-  const toShip = airship.position.clone().sub(obj.position);
-  const r = toShip.length();
-  let desired = _fwd;                          // default: keep flying straight
-  if (r > 120) {                               // strayed too far → ease back toward the fight
-    desired = _fwd.clone().lerp(toShip.normalize(), 0.5).normalize();
-  }
-  _newFwd.copy(_fwd).lerp(desired, clamp(0.9 * dt, 0, 1));
-  if (_newFwd.lengthSq() < 1e-6) _newFwd.copy(_fwd); else _newFwd.normalize();
-  const turnSign = Math.sign(_fwd.clone().cross(_newFwd).dot(_up));
-  player._roll = lerp(player._roll || 0, clamp(-turnSign * _fwd.angleTo(_newFwd) * 6, -0.28, 0.28), clamp(3 * dt, 0, 1));
-  _lookM.lookAt(_ZERO, _newFwd, _up); _lookQ.setFromRotationMatrix(_lookM);
-  obj.quaternion.copy(new T.Quaternion().setFromAxisAngle(_newFwd, player._roll).multiply(_lookQ));
-  obj.position.addScaledVector(_newFwd, GUN_CRUISE * dt);
+  obj.position.addScaledVector(_fwd, GUN_CRUISE * dt);
   obj.position.y = clamp(obj.position.y, CFG.FLOOR + 6, 80);
+  resolvePlayerCollisions();
 }
+const _bq = new T.Quaternion();
 function updateGunCamera(dt) {
   // You ride in the cockpit of the moving plane and man the gun. The frame/ring
   // is bolted to the plane; only the barrel + your view swivel within the ±45° cone.
@@ -719,12 +730,41 @@ function updateGunCamera(dt) {
   camera.position.x += (Math.random() - .5) * shake * .3;
   camera.position.y += (Math.random() - .5) * shake * .3;
 
-  // the gun assembly (frame) is fixed to the plane, in front of the cockpit
+  // the gun frame/ring is fixed to the plane, in front of the cockpit
   gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
   gun.quaternion.copy(base);
-  // ONLY the barrel swivels to follow the aim (relative to the frame)
-  if (gunBarrel) gunBarrel.rotation.set(G.pitch - recoil * 0.12, G.yaw, 0);
+  // ONLY the barrel swivels — driven in world space to follow the aim exactly
+  if (gunBarrel) {
+    gunBarrel.position.copy(gun.position).add(V3(0, 0.18, -0.1).applyQuaternion(base));
+    _bq.copy(_aimQ).multiply(_coneRecoil(-recoil * 0.12));
+    gunBarrel.quaternion.copy(_bq);
+  }
   recoil *= Math.pow(.0008, dt);
+}
+const _rq = new T.Quaternion(), _rqe = new T.Euler();
+function _coneRecoil(pitch) { _rqe.set(pitch, 0, 0); return _rq.setFromEuler(_rqe); }
+
+// Stop the player plane from passing through the airship or any enemy (both modes).
+const airshipHalf = new T.Vector3();
+const PLAYER_R = CFG.PLAYER.size * 0.4;
+function resolvePlayerCollisions() {
+  if (!airship) return;
+  // airship as an ellipsoid (it's long and thin — a sphere would be a poor fit)
+  const l = player.position.clone().sub(airship.position);
+  const hx = airshipHalf.x + PLAYER_R, hy = airshipHalf.y + PLAYER_R, hz = airshipHalf.z + PLAYER_R;
+  const nx = l.x / hx, ny = l.y / hy, nz = l.z / hz;
+  const norm = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (norm < 1 && norm > 1e-4) {
+    const s = 1 / norm; // push out to the surface along the radial
+    player.position.set(airship.position.x + l.x * s, airship.position.y + l.y * s, airship.position.z + l.z * s);
+  }
+  // enemies as spheres
+  const er = CFG.ENEMY.size * 0.5 + PLAYER_R;
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const d = player.position.clone().sub(e.obj.position); const L = d.length();
+    if (L < er && L > 1e-4) player.position.copy(e.obj.position).addScaledVector(d.multiplyScalar(1 / L), er);
+  }
 }
 function updateFlight(dt) {
   // controls
@@ -744,6 +784,8 @@ function updateFlight(dt) {
   flight.pos.y = clamp(flight.pos.y, CFG.FLOOR + 4, 90);
 
   player.position.copy(flight.pos); player.quaternion.copy(q);
+  resolvePlayerCollisions();          // can't fly through enemies or the airship
+  flight.pos.copy(player.position);   // keep the rig in sync after any push-out
 
   // chase camera
   const back = V3(0, 1.6, 7.5).applyQuaternion(q);

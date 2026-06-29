@@ -327,10 +327,11 @@ function loadGLB(name) { return new Promise((res, rej) => gltfLoader.load('/asse
 function loadHDR(name) { return new Promise((res, rej) => hdrLoader.load('/asset/' + name, t => res(t), undefined, rej)); }
 
 /* ============================ SOUND =============================== */
-// Three event sounds, bound by their file names:
-//   gun_fire.mp3   -> your machine gun while you hold fire   (machine_gun_fire_imp)
-//   engine.mp3     -> your plane's engine drone (ambient)    (ww1_plane_sound)
-//   wind.mp3       -> wind over the airship (ambient)         (wind_sound)
+// Four event sounds, bound by their file names:
+//   gun_fire.mp3 -> your machine gun while you hold fire    (ww_1_plane_machine_g)
+//   hit.mp3      -> a bullet striking the airship or you    (machine_gun_fire_imp)
+//   engine.mp3   -> your plane's engine drone (ambient)     (ww1_plane_sound)
+//   wind.mp3     -> wind over the airship (ambient)          (wind_sound)
 const listener = new T.AudioListener(); camera.add(listener);
 const audioLoader = new T.AudioLoader(); audioLoader.setRequestHeader({ 'x-game-token': TOKEN });
 const SND = { buffers: {}, gunLoop: null, engineLoop: null, windLoop: null, ready: false };
@@ -338,15 +339,31 @@ function loadAudioBuffer(name) {
   return new Promise(res => audioLoader.load('/asset/' + name, b => res(b), undefined, () => res(null)));
 }
 async function loadSounds() {
-  const [gun, engine, wind] = await Promise.all([
-    loadAudioBuffer('gun_fire.mp3'), loadAudioBuffer('engine.mp3'), loadAudioBuffer('wind.mp3'),
+  const [gun, hit, engine, wind] = await Promise.all([
+    loadAudioBuffer('gun_fire.mp3'), loadAudioBuffer('hit.mp3'),
+    loadAudioBuffer('engine.mp3'), loadAudioBuffer('wind.mp3'),
   ]);
-  SND.buffers = { gun, engine, wind };
+  SND.buffers = { gun, hit, engine, wind };
   const mkLoop = (buf, vol) => { if (!buf) return null; const a = new T.Audio(listener); a.setBuffer(buf); a.setLoop(true); a.setVolume(vol); return a; };
   SND.engineLoop = mkLoop(engine, 0);
   SND.windLoop = mkLoop(wind, 0);
   SND.gunLoop = mkLoop(gun, 0.55);
   SND.ready = true;
+}
+// Fire-and-forget one-shot (lets impacts overlap instead of cutting each other off).
+function playOneShot(buf, vol) {
+  const ctx = listener.context;
+  if (!buf || !ctx || ctx.state !== 'running' || vol < 0.03) return;
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain(); g.gain.value = vol;
+  src.connect(g).connect(listener.getInput());
+  try { src.start(); } catch (_) {}
+}
+// Bullet impact on the airship/your plane, attenuated by distance to the camera.
+function playHit(worldPos, baseVol = 0.7) {
+  let vol = baseVol;
+  if (worldPos) vol = baseVol * clamp(34 / Math.max(8, camera.position.distanceTo(worldPos)), 0, 1);
+  playOneShot(SND.buffers.hit, vol);
 }
 // Browsers start the audio context suspended until a user gesture (the "В бой"
 // click / first canvas click counts), so resume it there.
@@ -1072,6 +1089,7 @@ function damageShip(d, at) {
   G.shipHp = Math.max(0, G.shipHp - d);
   setShipHp();
   impact((at || airship.position).clone().add(randDir().multiplyScalar(3)).setY(airship.position.y + rnd(-3, 3)), V3(0, 1, 0), 1.1);
+  playHit(at || airship.position);          // bullet striking the hull
   if (G.shipHp <= 0) cinematicLoss('ship', 'Дирижабль уничтожен.');
 }
 function damagePlayer(d) {
@@ -1079,6 +1097,7 @@ function damagePlayer(d) {
   G.meHp = Math.max(0, G.meHp - d); setMeHp();
   ui.dmg.style.opacity = clamp(d / 8, .3, 1); setTimeout(() => ui.dmg.style.opacity = 0, 120);
   shake = Math.min(1.4, shake + .25);
+  playHit(null, 0.8);                        // a round hitting your own plane (close, full)
   if (G.meHp <= 0) cinematicLoss('player', 'Твой борт сбит.');
 }
 function killEnemy(e, at) {

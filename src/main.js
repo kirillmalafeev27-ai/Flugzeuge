@@ -33,7 +33,7 @@ function randDir() {
  * rotation offsets that might need a nudge live here for quick tweaking.   */
 const CFG = {
   PLAYER:  { size: 3.0,  rot: [0, -Math.PI / 2, 0], color: 0x2f6bd8 }, // nose -X -> -Z
-  ENEMY:   { size: 2.6,  rot: [0, 0, 0] },                              // nose along -Z
+  ENEMY:   { size: 3.9,  rot: [0, 0, 0] },                              // nose along -Z (50% larger)
   AIRSHIP: { size: 34,   rot: [0, Math.PI / 2, 0] },                    // long side to camera
   GUN:     { size: 1.5,  rot: [0, 0, 0] },                              // barrel -Z
   PROP_RPS: 22,            // propeller revolutions / second (~realistic WW1 idle/cruise)
@@ -817,7 +817,7 @@ function makeEnemy() {
   scene.add(obj);
   const e = {
     obj, hp: CFG.ENEMY_HP, state: 'approach', speed: rnd(CFG.ENEMY_SPEED[0], CFG.ENEMY_SPEED[1]),
-    fireT: rnd(.5, 1.4), pursuer: Math.random() < 0.5, passes: 0, roll: 0, alive: true, target: 'ship',
+    fireT: rnd(.67, 1.87), pursuer: Math.random() < 0.5, passes: 0, roll: 0, alive: true, target: 'ship',
     smokeT: rnd(0, .2), orbit: Math.random() < 0.5 ? -1 : 1,
   };
   enemies.push(e);
@@ -927,14 +927,14 @@ function updateEnemies(dt) {
       flyToward(e, desired, dt, d < CFG.CHASER_STANDOFF + 18 ? 1.45 : 1.0);
       e.fireT -= dt;
       const near = clamp(1 - d / 110, 0, 1);
-      if (e.fireT <= 0 && d < 110) { e.fireT = lerp(2.2, 0.85, near); e.target = 'player'; enemyFire(e, player.position, near); }
+      if (e.fireT <= 0 && d < 110) { e.fireT = lerp(2.93, 1.13, near); e.target = 'player'; enemyFire(e, player.position, near); }
     } else if (e.state === 'approach') {
       // run in on the airship, firing more accurately the closer we get
       const desired = ship.clone().sub(obj.position).normalize();
       flyToward(e, desired, dt, 0.9);
       e.fireT -= dt;
       const near = clamp(1 - distShip / 100, 0, 1);
-      if (e.fireT <= 0 && distShip < 100) { e.fireT = lerp(1.55, 0.48, near); e.target = 'ship'; enemyFire(e, ship, near); }
+      if (e.fireT <= 0 && distShip < 100) { e.fireT = lerp(2.07, 0.64, near); e.target = 'ship'; enemyFire(e, ship, near); }
       if (distShip < 24) e.state = 'pass';
     } else if (e.state === 'pass') {
       // punch straight through, past the airship

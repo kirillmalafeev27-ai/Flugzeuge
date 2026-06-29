@@ -40,6 +40,11 @@ const ASSETS = {
   'airship.glb':      { file: 'airship.glb',      mime: 'model/gltf-binary' },
   'machine_gun.glb':  { file: 'machine_gun.glb',  mime: 'model/gltf-binary' },
   'sky.hdr':          { file: 'sky.hdr',          mime: 'image/vnd.radiance' },
+  // sound effects (clean URL names -> the real on-disk files)
+  'gun_fire.mp3':     { file: 'machine_gun_fire_imp_#1-1782748284667.mp3', mime: 'audio/mpeg' },
+  'enemy_fire.mp3':   { file: 'ww_1_plane_machine_g_#1-1782748074091.mp3', mime: 'audio/mpeg' },
+  'engine.mp3':       { file: 'ww1_plane_sound_#4-1782747980234.mp3',      mime: 'audio/mpeg' },
+  'wind.mp3':         { file: 'wind_sound_#4-1782748025121.mp3',           mime: 'audio/mpeg' },
 };
 
 // In-memory session token store: token -> { exp }

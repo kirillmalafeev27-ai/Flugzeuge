@@ -326,6 +326,63 @@ const hdrLoader = new RGBELoader(); hdrLoader.setRequestHeader({ 'x-game-token':
 function loadGLB(name) { return new Promise((res, rej) => gltfLoader.load('/asset/' + name, g => res(g), undefined, rej)); }
 function loadHDR(name) { return new Promise((res, rej) => hdrLoader.load('/asset/' + name, t => res(t), undefined, rej)); }
 
+/* ============================ SOUND =============================== */
+// Four event sounds, bound by their file names:
+//   gun_fire.mp3   -> your machine gun while you hold fire   (machine_gun_fire_imp)
+//   enemy_fire.mp3 -> an enemy plane firing a burst          (ww_1_plane_machine_g)
+//   engine.mp3     -> your plane's engine drone (ambient)    (ww1_plane_sound)
+//   wind.mp3       -> wind over the airship (ambient)         (wind_sound)
+const listener = new T.AudioListener(); camera.add(listener);
+const audioLoader = new T.AudioLoader(); audioLoader.setRequestHeader({ 'x-game-token': TOKEN });
+const SND = { buffers: {}, gunLoop: null, engineLoop: null, windLoop: null, ready: false };
+function loadAudioBuffer(name) {
+  return new Promise(res => audioLoader.load('/asset/' + name, b => res(b), undefined, () => res(null)));
+}
+async function loadSounds() {
+  const [gun, enemy, engine, wind] = await Promise.all([
+    loadAudioBuffer('gun_fire.mp3'), loadAudioBuffer('enemy_fire.mp3'),
+    loadAudioBuffer('engine.mp3'), loadAudioBuffer('wind.mp3'),
+  ]);
+  SND.buffers = { gun, enemy, engine, wind };
+  const mkLoop = (buf, vol) => { if (!buf) return null; const a = new T.Audio(listener); a.setBuffer(buf); a.setLoop(true); a.setVolume(vol); return a; };
+  SND.engineLoop = mkLoop(engine, 0);
+  SND.windLoop = mkLoop(wind, 0);
+  SND.gunLoop = mkLoop(gun, 0.55);
+  SND.ready = true;
+}
+// Browsers start the audio context suspended until a user gesture (the "В бой"
+// click / first canvas click counts), so resume it there.
+function resumeAudio() { const ctx = listener.context; if (ctx && ctx.state === 'suspended') ctx.resume(); }
+let _engVol = 0;
+function updateAudio(dt) {
+  if (!SND.ready) return;
+  const running = listener.context.state === 'running';
+  if (SND.windLoop) { if (running && !SND.windLoop.isPlaying) SND.windLoop.play(); SND.windLoop.setVolume(0.22); }
+  if (SND.engineLoop) {
+    if (running && !SND.engineLoop.isPlaying) SND.engineLoop.play();
+    const target = (G.running && !G.over) ? (G.mode === 'flight' ? 0.5 : 0.32) : 0.12;
+    _engVol += (target - _engVol) * Math.min(1, dt * 3);
+    SND.engineLoop.setVolume(_engVol);
+  }
+  if (SND.gunLoop) {
+    const wantGun = running && G.running && !G.over && G.mode === 'gun' && firing && G.ammo > 0 && !G.quizActive;
+    if (wantGun && !SND.gunLoop.isPlaying) SND.gunLoop.play();
+    else if (!wantGun && SND.gunLoop.isPlaying) SND.gunLoop.stop();
+  }
+}
+// Overlapping one-shot for each enemy burst, quieter the further away it is.
+function playEnemyShot(worldPos) {
+  const buf = SND.buffers.enemy; const ctx = listener.context;
+  if (!buf || !ctx || ctx.state !== 'running') return;
+  const dist = worldPos ? camera.position.distanceTo(worldPos) : 40;
+  const vol = clamp(26 / Math.max(8, dist), 0, 1) * 0.5;
+  if (vol < 0.03) return;
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain(); g.gain.value = vol;
+  src.connect(g).connect(listener.getInput());
+  try { src.start(); } catch (_) {}
+}
+
 /* wrap a loaded scene in a centred, scaled pivot with given target size */
 function normalize(obj, size, rot) {
   const pivot = new T.Group();
@@ -682,6 +739,7 @@ function showVictoryStory() {
 async function boot() {
   await RAPIER.init();
   initPhysics();
+  loadSounds();              // load SFX in the background; gameplay doesn't wait on it
 
   const steps = ['sky.hdr', 'airship.glb', 'player_plane.glb', 'machine_gun.glb', 'enemy_ww1.glb'];
   let done = 0; const tick = () => { ui.loadBar.style.width = Math.round(++done / steps.length * 100) + '%'; };
@@ -991,6 +1049,7 @@ function enemyFire(e, targetPos, near) {
     }
   });
   muzzleFlash(muzzle, dir);
+  playEnemyShot(muzzle);
 }
 
 /* ============================ DAMAGE / DEATH ====================== */
@@ -1158,6 +1217,7 @@ addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] =
 let pointerLocked = false;
 const _canvas = renderer.domElement;
 _canvas.addEventListener('pointerdown', () => {
+  resumeAudio();                                        // first gesture unlocks audio
   if (!G.running || G.mode !== 'gun' || G.quizActive) return;
   if (!pointerLocked) { _canvas.requestPointerLock(); } // first click: grab the cursor
   firing = true;                                        // and start firing
@@ -1381,6 +1441,7 @@ function updateSpawns(dt) {
 async function startGame() {
   if (G.starting || G.running) return;
   G.starting = true;
+  resumeAudio();             // the start click is a user gesture — unlock audio
   G.gameIndex++;             // 0 = first run of the session, used by difficulty()
   actionQuiz.reset();        // realign the question counter with the fresh deck
   ui.startBtn.disabled = true;
@@ -1481,6 +1542,7 @@ function frame() {
 
   muzzleLightI *= Math.pow(.0001, dt); muzzleLight.intensity = muzzleLightI;
   updateTracers(dt); updateDebris(dt); updateParticles(dt);
+  updateAudio(dt);
   shake *= Math.pow(.02, dt);
 
   renderer.render(scene, camera);

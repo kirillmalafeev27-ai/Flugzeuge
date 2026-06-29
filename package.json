@@ -1,0 +1,29 @@
+{
+  "name": "flugzeuge",
+  "version": "1.0.0",
+  "description": "Zeppelin Defense — three.js + Rapier + Voronoi browser game",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --format=iife --target=es2020 --outfile=public/bundle.js",
+    "watch": "esbuild src/main.js --bundle --format=iife --target=es2020 --sourcemap --outfile=public/bundle.js --watch",
+    "postinstall": "npm run build",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:41729/git/kirillmalafeev27-ai/Flugzeuge"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "esbuild": "^0.28.1",
+    "express": "^5.2.1",
+    "three": "^0.164.0",
+    "three-pinata": "^0.1.1"
+  }
+}

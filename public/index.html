@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Оборона дирижабля</title>
+<style>
+  :root{
+    --ink:#eef1f8; --muted:#939bb0; --line:rgba(255,255,255,.09);
+    --glass:rgba(14,18,30,.55); --accent:#ff7a2f; --good:#46d39a; --bad:#ff5a4d;
+    --sky:#6fb7ff; --mono:'SFMono-Regular',ui-monospace,'Roboto Mono',Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#070a12;color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+  canvas{display:block;position:fixed;inset:0}
+
+  /* ---- top-left status panel ---- */
+  .panel{position:fixed;top:16px;left:16px;z-index:10;width:248px;
+    background:var(--glass);backdrop-filter:blur(14px) saturate(1.4);
+    -webkit-backdrop-filter:blur(14px) saturate(1.4);
+    border:1px solid var(--line);border-radius:16px;padding:15px 16px;
+    box-shadow:0 18px 50px -20px rgba(0,0,0,.85)}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--muted)}
+  .title{font-size:18px;font-weight:600;letter-spacing:-.01em;margin:3px 0 10px;
+    display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px 2px var(--accent)}
+  .meter{margin:9px 0}
+  .meter .lab{display:flex;justify-content:space-between;font-size:11px;
+    font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:5px}
+  .meter .lab b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .bar{height:8px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden}
+  .bar>i{display:block;height:100%;width:100%;border-radius:6px;transition:width .15s,background .2s}
+  .bar.ship>i{background:linear-gradient(90deg,#6fb7ff,#a9d6ff)}
+  .bar.me>i{background:linear-gradient(90deg,var(--good),#9fe6c4)}
+  .bar.low>i{background:linear-gradient(90deg,#ff5a4d,#ff9a3d)!important}
+  .stat{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);
+    margin-top:8px;font-family:var(--mono)}
+  .stat b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+  /* ---- top-center timer ---- */
+  #clock{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10;
+    font-family:var(--mono);font-size:30px;font-weight:600;letter-spacing:.04em;
+    font-variant-numeric:tabular-nums;color:var(--ink);
+    background:var(--glass);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px solid var(--line);border-radius:14px;padding:6px 18px;
+    box-shadow:0 12px 36px -18px rgba(0,0,0,.8)}
+  #clock small{display:block;text-align:center;font-size:9px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--muted);font-weight:400}
+
+  /* ---- bottom-right controls ---- */
+  .dock{position:fixed;right:16px;bottom:16px;z-index:10;display:flex;flex-direction:column;
+    gap:10px;align-items:flex-end}
+  .ammo{font-family:var(--mono);font-size:13px;color:var(--muted);
+    background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:8px 14px;
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  .ammo b{color:var(--ink);font-size:22px;font-variant-numeric:tabular-nums}
+  .ammo.empty b{color:var(--bad)}
+  .row{display:flex;gap:10px}
+  button.act{font:inherit;font-size:13px;font-weight:600;color:var(--ink);
+    border:1px solid var(--line);border-radius:12px;padding:11px 16px;cursor:pointer;
+    background:rgba(255,255,255,.05);transition:.15s;backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px)}
+  button.act:hover{background:rgba(255,255,255,.11);transform:translateY(-1px)}
+  button.act:active{transform:translateY(0)}
+  button.act.warm{color:var(--accent);border-color:rgba(255,122,47,.45)}
+  button.act .k{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:7px}
+
+  /* ---- bottom hint ---- */
+  .hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9;text-align:center;
+    font-size:12px;color:var(--muted);pointer-events:none;letter-spacing:.02em;max-width:60vw}
+  .hint kbd{font-family:var(--mono);font-size:11px;color:var(--ink);
+    background:rgba(255,255,255,.07);border:1px solid var(--line);
+    border-radius:6px;padding:2px 7px;margin:0 1px}
+
+  /* ---- reticle (gun mode) ---- */
+  #reticle{position:fixed;left:50%;top:50%;z-index:8;width:48px;height:48px;margin:-24px 0 0 -24px;
+    pointer-events:none;mix-blend-mode:screen;opacity:0;transition:opacity .2s}
+  #reticle.show{opacity:1}
+  #reticle .r{position:absolute;inset:0;border:1.5px solid rgba(255,150,80,.75);border-radius:50%}
+  #reticle .c{position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px;
+    background:#ff9a4f;border-radius:50%}
+  #reticle .t{position:absolute;background:rgba(255,150,80,.75)}
+  #reticle .t.u{left:50%;top:-8px;width:1.5px;height:10px;margin-left:-.75px}
+  #reticle .t.d{left:50%;bottom:-8px;width:1.5px;height:10px;margin-left:-.75px}
+  #reticle .t.l{top:50%;left:-8px;height:1.5px;width:10px;margin-top:-.75px}
+  #reticle .t.r2{top:50%;right:-8px;height:1.5px;width:10px;margin-top:-.75px}
+
+  .hm{position:fixed;z-index:8;width:24px;height:24px;margin:-12px 0 0 -12px;pointer-events:none;opacity:0}
+  .hm.go{animation:hmpop .4s ease-out forwards}
+  .hm i{position:absolute;left:10px;top:2px;width:3px;height:8px;border-radius:2px;
+    background:#fff;box-shadow:0 0 6px rgba(255,180,90,.9)}
+  .hm i:nth-child(1){transform:rotate(45deg) translateY(-6px)}
+  .hm i:nth-child(2){transform:rotate(45deg) translateY(6px)}
+  .hm i:nth-child(3){transform:rotate(-45deg) translateY(-6px)}
+  .hm i:nth-child(4){transform:rotate(-45deg) translateY(6px)}
+  @keyframes hmpop{0%{opacity:0;transform:scale(.5)}15%{opacity:1;transform:scale(1.1)}100%{opacity:0;transform:scale(1.3)}}
+
+  /* hit vignette */
+  #dmg{position:fixed;inset:0;z-index:7;pointer-events:none;opacity:0;
+    box-shadow:inset 0 0 160px 40px rgba(255,40,30,.55);transition:opacity .12s}
+
+  /* ---- overlays ---- */
+  .overlay{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;text-align:center;
+    background:radial-gradient(120% 120% at 50% 30%,rgba(8,11,20,.55),rgba(5,7,14,.92));
+    backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+  .overlay.hidden{display:none}
+  .overlay h1{font-size:42px;margin:0;font-weight:700;letter-spacing:-.02em}
+  .overlay p{margin:0;color:var(--muted);max-width:440px;line-height:1.5;font-size:14px}
+  .overlay .big{font-size:64px;line-height:1}
+  .overlay button{font:inherit;font-size:16px;font-weight:600;color:#0a0d16;
+    background:linear-gradient(180deg,#ffd28a,var(--accent));border:0;border-radius:14px;
+    padding:14px 30px;cursor:pointer;box-shadow:0 14px 40px -14px var(--accent);transition:.15s}
+  .overlay button:hover{transform:translateY(-2px)}
+  .spin{width:46px;height:46px;border-radius:50%;border:3px solid rgba(255,255,255,.15);
+    border-top-color:var(--accent);animation:rot 1s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .barload{width:240px;height:6px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden}
+  .barload>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd28a,var(--accent));transition:width .2s}
+  .win h1{color:var(--good)} .lose h1{color:var(--bad)}
+  @media (max-width:640px){.panel{width:200px}#clock{font-size:24px}.hint{display:none}}
+</style>
+</head>
+<body>
+<!-- status -->
+<div class="panel">
+  <div class="eyebrow">three.js · rapier · voronoi</div>
+  <div class="title"><span class="dot" id="modeDot"></span><span id="modeName">Пулемёт</span></div>
+  <div class="meter">
+    <div class="lab">Дирижабль <b id="shipHpv">100</b></div>
+    <div class="bar ship" id="shipWrap"><i id="shipBar"></i></div>
+  </div>
+  <div class="meter">
+    <div class="lab">Твой борт <b id="meHpv">100</b></div>
+    <div class="bar me" id="meWrap"><i id="meBar"></i></div>
+  </div>
+  <div class="stat"><span>врагов в небе</span><b id="enemyCount">0</b></div>
+  <div class="stat"><span>сбито</span><b id="kills">0</b></div>
+</div>
+
+<!-- timer -->
+<div id="clock"><small>удержать</small><span id="time">2:00</span></div>
+
+<!-- controls -->
+<div class="dock">
+  <div class="ammo" id="ammoBox">патроны <b id="ammo">60</b></div>
+  <div class="row">
+    <button class="act" id="reloadBtn">Перезарядка <span class="k">R · +30</span></button>
+    <button class="act warm" id="modeBtn">Полёт <span class="k">TAB</span></button>
+  </div>
+</div>
+
+<div class="hint" id="hint"></div>
+
+<!-- gun reticle / hitmarker / damage -->
+<div id="reticle"><span class="r"></span><span class="c"></span>
+  <span class="t u"></span><span class="t d"></span><span class="t l"></span><span class="t r2"></span></div>
+<div class="hm" id="hm"><i></i><i></i><i></i><i></i></div>
+<div id="dmg"></div>
+
+<!-- loading -->
+<div class="overlay" id="loading">
+  <div class="spin"></div>
+  <h1 style="font-size:26px">Оборона дирижабля</h1>
+  <p id="loadMsg">Загрузка моделей и неба…</p>
+  <div class="barload"><i id="loadBar"></i></div>
+</div>
+
+<!-- start -->
+<div class="overlay hidden" id="start">
+  <div class="eyebrow">миссия</div>
+  <h1>Оборона дирижабля</h1>
+  <p>Удержи дирижабль <b>2 минуты</b>. Истребители заходят на него волнами, бьют тем точнее, чем ближе подлетают, делают петлю и идут на второй круг. Часть из них отделяется и охотится за тобой.<br><br>
+  <b>Пулемёт</b> — стоишь на месте, целишься (обзор ±45°) и стреляешь.
+  <b>Полёт</b> — свободно летаешь, но не стреляешь. Переключение — <kbd>TAB</kbd>.</p>
+  <button id="startBtn">В бой</button>
+</div>
+
+<!-- end -->
+<div class="overlay hidden" id="end">
+  <div class="big" id="endIcon">🏆</div>
+  <h1 id="endTitle">Победа</h1>
+  <p id="endMsg"></p>
+  <button id="againBtn">Ещё раз</button>
+</div>
+
+<script>window.__T="__GAME_TOKEN__";</script>
+<script src="/bundle.js"></script>
+</body>
+</html>

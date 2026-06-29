@@ -597,6 +597,28 @@
       }
     }
 
+    // A question answered wrong should not disappear: re-queue it so the player
+    // meets it again. The live source during a round is the shared deck, so we
+    // append a copy to its end (and forget it was "used" so dedup won't drop it).
+    // Falls back to the generated pool when no deck is active.
+    requeueQuestion(question) {
+      if (!question) return false;
+      const key = question.poolKey;
+      const used = key && this.usedDisplays[key];
+      if (used) {
+        if (question.display) used.delete(question.display);
+        if (question.audioText) used.delete(question.audioText);
+        if (question.raw?.display) used.delete(question.raw.display);
+        if (question.raw?.audioText) used.delete(question.raw.audioText);
+      }
+      if (Array.isArray(this.sharedDeck)) {
+        this.sharedDeck.push(JSON.parse(JSON.stringify(question)));
+        return true;
+      }
+      if (question.raw && key) { this.releaseQuestion(question); return true; }
+      return false;
+    }
+
     poolHasQuestion(context = {}) {
       if (this.sharedDeckHasRange(context.floor || 1, 1)) return true;
       if (!this.generationAllowed) return true;
@@ -962,6 +984,7 @@
   window.applySeaQuizDeck = (config) => bank.applySharedDeck(config);
   window.republishSeaQuizDeck = () => bank.republishSharedDeck();
   window.releaseQuizQuestion = (question) => bank.releaseQuestion(question);
+  window.requeueQuizQuestion = (question) => bank.requeueQuestion(question);
   window.quizPoolHasQuestion = (context) => bank.poolHasQuestion(context);
   window.quizEnsureQuestionAvailable = (context) => bank.ensureQuestionAvailable(context);
   window.playQuizAudio = (question, force) => AudioQuiz.play(question, force);

@@ -80,6 +80,12 @@ export class ActionQuizGate {
     return prepare({ floors: count, startFloor: 1 });
   }
 
+  // Called when a new round begins so the question counter lines up with the
+  // freshly built deck (which always starts at floor 1).
+  reset() {
+    this.questionCounter = 0;
+  }
+
   async request(action, context = {}) {
     if (this.active) return false;
     const floor = ++this.questionCounter;
@@ -145,6 +151,9 @@ export class ActionQuizGate {
     if (!this.current) return;
     const { action, question } = this.current;
     const correct = index === question.correctIndex;
+    // A wrong answer is not retired: put the question back into the pool so it
+    // comes around again later instead of being lost.
+    if (!correct) window.requeueQuizQuestion?.(question);
     this.panel.querySelectorAll("[data-answer]").forEach((button) => {
       const answerIndex = Number(button.dataset.answer);
       button.disabled = true;

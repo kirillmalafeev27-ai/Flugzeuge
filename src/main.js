@@ -211,6 +211,19 @@ function updateTracers(dt) {
       scene.remove(tr.mesh); scene.remove(tr.head); tr.head.material.dispose(); tracers.splice(i, 1);
     } }
 }
+// Wipe every transient effect so a restart starts on a clean scene without a
+// full page reload (the old "Ещё раз" reloaded the page, which dumped you back
+// to the menu). Shared tracer materials are reused, so only per-instance ones
+// get disposed.
+function clearTransients() {
+  for (let i = parts.length - 1; i >= 0; i--) { scene.remove(parts[i].obj); parts[i].mat.dispose(); }
+  parts.length = 0;
+  for (let i = tracers.length - 1; i >= 0; i--) { const tr = tracers[i]; scene.remove(tr.mesh); scene.remove(tr.head); tr.head.material.dispose(); }
+  tracers.length = 0;
+  for (let i = debris.length - 1; i >= 0; i--) removeDebris(debris[i]);
+  debris.length = 0;
+  shake = 0;
+}
 
 /* ============================ RAPIER DEBRIS ========================= */
 let world = null;
@@ -1156,7 +1169,9 @@ addEventListener('mousemove', e => {
 ui.modeBtn.onclick = requestToggleMode;
 ui.reloadBtn.onclick = requestReload;
 ui.startBtn.onclick = startGame;
-ui.againBtn.onclick = () => location.reload();
+// Restart straight into a new round instead of reloading the page (which threw
+// the player back out to the start menu and reset their session difficulty).
+ui.againBtn.onclick = () => { ui.end.classList.add('hidden'); startGame(); };
 
 async function requestAction(action, context, apply) {
   if (!G.running || G.over || G.actionPending || actionQuiz.active) return;
@@ -1355,6 +1370,7 @@ async function startGame() {
   if (G.starting || G.running) return;
   G.starting = true;
   G.gameIndex++;             // 0 = first run of the session, used by difficulty()
+  actionQuiz.reset();        // realign the question counter with the fresh deck
   ui.startBtn.disabled = true;
   ui.startBtn.textContent = 'Готовлю задания...';
   try {
@@ -1368,6 +1384,7 @@ async function startGame() {
     const e = enemies.pop();
     if (e?.obj) scene.remove(e.obj);
   }
+  clearTransients();         // drop leftover tracers/debris/smoke from the last round
   G.running = true;
   G.starting = false;
   G.over = false; G.endDisplayed = false; G.cinematic = null; G.evasion = 0; G.spawned = 0;

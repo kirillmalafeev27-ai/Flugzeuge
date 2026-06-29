@@ -420,6 +420,7 @@ const ui = {
   hint: $('hint'), loading: $('loading'), loadBar: $('loadBar'), loadMsg: $('loadMsg'),
   start: $('start'), startBtn: $('startBtn'), end: $('end'), endIcon: $('endIcon'),
   endTitle: $('endTitle'), endMsg: $('endMsg'), storyChoice: $('storyChoice'), storyCard: $('storyCard'), againBtn: $('againBtn'),
+  gameModeSelect: $('gameModeSelect'), modeChoiceDesc: $('modeChoiceDesc'),
 };
 
 /* ============================ GAME STATE ========================== */
@@ -432,6 +433,7 @@ const G = {
   yaw: 0, pitch: 0,        // gun aim within cone
   quizActive: false, quizPausesCombat: false, actionPending: false, starting: false,
   evasion: 0, playerSmokeT: 0, cinematic: null, endDisplayed: false,
+  easyMode: false,         // simplified mode: every quiz pauses the whole game
 };
 const actionQuiz = new ActionQuizGate({
   onActiveChange: active => {
@@ -444,6 +446,26 @@ const actionQuiz = new ActionQuizGate({
 });
 const STORY_SELECTED_KEY = 'zeppelin-defense.story-selected.v1';
 const STORY_PROGRESS_PREFIX = 'zeppelin-defense.story-progress.';
+const GAME_MODE_KEY = 'zeppelin-defense.game-mode.v1';
+
+const GAME_MODE_DESC = {
+  standard: 'Бой не замирает на вопросах перезарядки и перехода в полёт — нужно успевать и стрелять, и отвечать.',
+  easy: 'Любой вопрос ставит игру на паузу — отвечай спокойно, время и враги ждут.',
+};
+// Read/write the chosen mode and reflect it in G.easyMode + the menu blurb.
+function applyGameMode(mode, persist = true) {
+  const easy = mode === 'easy';
+  G.easyMode = easy;
+  if (persist) { try { localStorage.setItem(GAME_MODE_KEY, easy ? 'easy' : 'standard'); } catch (_) {} }
+  if (ui.modeChoiceDesc) ui.modeChoiceDesc.textContent = easy ? GAME_MODE_DESC.easy : GAME_MODE_DESC.standard;
+  if (ui.gameModeSelect) ui.gameModeSelect.value = easy ? 'easy' : 'standard';
+}
+function initGameMode() {
+  let saved = 'standard';
+  try { if (localStorage.getItem(GAME_MODE_KEY) === 'easy') saved = 'easy'; } catch (_) {}
+  applyGameMode(saved, false);
+  ui.gameModeSelect?.addEventListener('change', e => applyGameMode(e.target.value));
+}
 const AIRSHIP_STORIES = [
   {
     id: 'world80',
@@ -858,6 +880,7 @@ async function boot() {
   scene.fog = new T.FogExp2(0x9fb6cf, 0.0016);
 
   renderStoryChoice();
+  initGameMode();
   ui.loading.classList.add('hidden');
   ui.start.classList.remove('hidden');
 }
@@ -1256,7 +1279,9 @@ ui.againBtn.onclick = () => { ui.end.classList.add('hidden'); startGame(); };
 async function requestAction(action, context, apply) {
   if (!G.running || G.over || G.actionPending || actionQuiz.active) return;
   G.actionPending = true;
-  G.quizPausesCombat = !(action === 'reload' || (action === 'mode' && context.mode === 'flight'));
+  // Simplified mode: any question freezes the whole game. Standard mode: combat
+  // keeps running except for reload / switching into flight.
+  G.quizPausesCombat = G.easyMode || !(action === 'reload' || (action === 'mode' && context.mode === 'flight'));
   firing = false;
   try {
     const correct = await actionQuiz.request(action, context);

@@ -97,6 +97,7 @@
     padding:9px 8px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
   .segmented button:hover{background:rgba(255,255,255,.08)}
   .segmented button.selected{background:linear-gradient(180deg,#ffd28a,var(--accent));color:#0a0d16}
+  .start-side{display:grid;gap:14px;align-content:start}
   .story-choice{height:100%;display:grid;gap:11px;padding:14px 16px;border:1px solid var(--line);
     border-radius:12px;background:rgba(255,255,255,.045);text-align:left}
   .story-choice .story-head{display:flex;justify-content:space-between;gap:10px;align-items:start;
@@ -259,7 +260,25 @@
   <b>Полёт</b> — свободно летаешь, но не стреляешь. Перед боем выбери немецкую тему: перезарядка и смена режима требуют правильного ответа.</p>
   <div class="start-config">
     <div id="learningHost"></div>
-    <div id="storyChoice" class="story-choice"></div>
+    <div class="start-side">
+      <div id="modeChoice" class="story-choice">
+        <div class="story-head">
+          <div>
+            <div class="story-kicker">Режим</div>
+            <div class="story-name">Сложность</div>
+          </div>
+        </div>
+        <label>
+          <span>Что происходит во время вопросов</span>
+          <select id="gameModeSelect">
+            <option value="standard">Стандартный</option>
+            <option value="easy">Упрощённый — пауза на вопросах</option>
+          </select>
+        </label>
+        <p id="modeChoiceDesc"></p>
+      </div>
+      <div id="storyChoice" class="story-choice"></div>
+    </div>
   </div>
   <button id="startBtn">В бой</button>
 </div>

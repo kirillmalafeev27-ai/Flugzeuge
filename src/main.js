@@ -337,13 +337,13 @@ const G = {
   kills: 0, timeLeft: CFG.ROUND_TIME,
   yaw: 0, pitch: 0,        // gun aim within cone
 };
-let player = null, propeller = null, airship = null, gun = null;
+let player = null, propeller = null, airship = null, gun = null, gunBarrel = null;
 let enemyTpl = null;       // template gltf scene for cloning
 const enemies = [];
 const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 14 };
-// Gun mode is anchored to wherever the plane currently is + whichever way its
-// nose points — NOT a fixed point in space. Frozen on entering gun mode.
-const gunBase = { pos: new T.Vector3(), quat: new T.Quaternion() };
+// In gun mode the plane keeps flying (auto-patrol around the airship); you can't
+// steer it, only aim the gun within a ±45° cone of its nose.
+const GUN_CRUISE = 9;
 let shake = 0;
 
 /* ============================ BUILD WORLD ========================= */
@@ -383,7 +383,22 @@ async function boot() {
   ui.loadMsg.textContent = 'Установка пулемёта…';
   const gunG = await loadGLB('machine_gun.glb');
   const gn = normalize(gunG.scene, CFG.GUN.size, CFG.GUN.rot);
-  gun = gn.pivot; enableShadows(gun, true, false); scene.add(gun); tick();
+  gun = gn.pivot; enableShadows(gun, true, false); scene.add(gun);
+  // Split the model: the "machine gun" (barrel) swivels; the frame/ring it sits
+  // on stays put. Re-parent the barrel mesh onto a pivot at its own centre so
+  // rotating the pivot swivels just the gun.
+  gun.updateMatrixWorld(true);
+  let barrelMesh = null;
+  gun.traverse(n => { if (n.isMesh && /machine\s*gun/i.test(n.name)) barrelMesh = n; });
+  if (barrelMesh) {
+    const box = new T.Box3().setFromObject(barrelMesh), c = new T.Vector3(); box.getCenter(c);
+    const parent = barrelMesh.parent;
+    gunBarrel = new T.Group(); gunBarrel.rotation.order = 'YXZ';
+    parent.add(gunBarrel);
+    gunBarrel.position.copy(parent.worldToLocal(c.clone()));
+    gunBarrel.attach(barrelMesh); // keep world transform; barrel now hangs off the pivot centre
+  }
+  tick();
 
   // enemy template
   ui.loadMsg.textContent = 'Подъём эскадрильи…';
@@ -544,7 +559,7 @@ function killEnemy(e, at) {
   const baseVel = V3(0, 0, -1).applyQuaternion(e.obj.quaternion).multiplyScalar(e.speed * .5);
   // re-resolve the live mesh under the placed pivot and Voronoi-fracture it
   let live = null; e.obj.traverse(n => { if (n.isMesh && (!live || n.geometry.attributes.position.count > live.geometry.attributes.position.count)) live = n; });
-  if (live) { try { fractureMesh(live, c, baseVel, 9, ENEMY_COLOR); } catch (err) { console.warn('fracture failed', err); } }
+  if (live) { try { fractureMesh(live, c, baseVel, 9, 0x7a6a4a); } catch (err) { console.warn('fracture failed', err); } }
   scene.remove(e.obj);
   const idx = enemies.indexOf(e); if (idx >= 0) enemies.splice(idx, 1);
   G.kills++; ui.kills.textContent = G.kills;
@@ -556,10 +571,10 @@ let firing = false, cooldown = 0; const FIRE_DT = 0.08;
 let recoil = 0;
 function fire() {
   if (G.ammo <= 0) { return; }
-  // muzzle = a bit in front of the gun, along its forward
-  gun.updateMatrixWorld();
-  const muzzle = new T.Vector3(0, 0, -CFG.GUN.size * .55).applyMatrix4(gun.matrixWorld);
-  const aimDir = V3(0, 0, -1).applyQuaternion(camera.quaternion); // camera & gun share aim
+  // shots follow the aim; muzzle sits just under the view, where the barrel points
+  const aimDir = V3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const muzzle = camera.position.clone().addScaledVector(aimDir, 1.6)
+    .addScaledVector(V3(0, -1, 0).applyQuaternion(camera.quaternion), 0.35);
   const dir = aimDir.clone();
   dir.x += rnd(-1, 1) * .01; dir.y += rnd(-1, 1) * .01; dir.normalize();
 
@@ -598,7 +613,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 // debug helpers (only with ?debug) — verify Voronoi+Rapier death without aiming
 if (location.search.includes('debug')) {
-  window.__spawnClose = () => { makeEnemy(); const e = enemies[enemies.length - 1]; const f = V3(0, 0, -1).applyQuaternion(gunBase.quat); e.obj.position.copy(gunBase.pos).addScaledVector(f, 30).add(V3(rnd(-6, 6), rnd(2, 8), 0)); e.pursuer = false; return e; };
+  window.__spawnClose = () => { makeEnemy(); const e = enemies[enemies.length - 1]; const f = V3(0, 0, -1).applyQuaternion(player.quaternion); e.obj.position.copy(player.position).addScaledVector(f, 30).add(V3(rnd(-6, 6), rnd(2, 8), 0)); e.pursuer = false; return e; };
   window.__killAll = () => { for (const e of enemies.slice()) if (e.alive) killEnemy(e, e.obj.position.clone()); };
   window.__state = () => ({ mode: G.mode, player: player.position.toArray().map(x => +x.toFixed(1)), cam: camera.position.toArray().map(x => +x.toFixed(1)), enemies: enemies.map(e => ({ s: e.state, p: e.obj.position.toArray().map(x => +x.toFixed(1)) })) });
 }
@@ -640,11 +655,11 @@ function toggleMode() {
     : '<kbd>W/S</kbd> тангаж · <kbd>A/D</kbd> крен · <kbd>Q/E</kbd> рыскание · <kbd>Shift/Ctrl</kbd> газ · <kbd>TAB</kbd> к пулемёту';
   renderer.domElement.style.cursor = gunMode ? 'none' : 'default';
   gun.visible = gunMode;
+  if (gunBarrel) gunBarrel.visible = gunMode;
   if (gunMode) {
-    // freeze the plane exactly where it is; the gun aims where the nose points
-    gunBase.pos.copy(player.position);
-    gunBase.quat.copy(player.quaternion);
+    // keep flying from the current pose; you just take the gun
     G.yaw = 0; G.pitch = 0;
+    player._roll = player._roll || 0;
   } else {
     // entering flight: resume flying from the plane's current pose
     flight.pos.copy(player.position);
@@ -671,26 +686,44 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
+// Auto-patrol: the plane keeps flying (you can't steer it). It cruises and gently
+// banks to orbit the airship it's defending.
+function updateGunFlight(dt) {
+  const obj = player;
+  _fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
+  const toShip = airship.position.clone().sub(obj.position); toShip.y *= 0.25;
+  const r = Math.max(0.001, toShip.length());
+  const radial = toShip.clone().multiplyScalar(1 / r);
+  let tangent = new T.Vector3().crossVectors(_up, radial).normalize(); // circle the airship
+  if (tangent.dot(_fwd) < 0) tangent.negate();                          // keep turn direction
+  const radialBias = clamp((r - 70) / 60, -0.6, 0.6);                   // hold a ~70u radius
+  const desired = tangent.addScaledVector(radial, radialBias).normalize();
+  _newFwd.copy(_fwd).lerp(desired, clamp(0.6 * dt, 0, 1));
+  if (_newFwd.lengthSq() < 1e-6) _newFwd.copy(_fwd); else _newFwd.normalize();
+  const turnSign = Math.sign(_fwd.clone().cross(_newFwd).dot(_up));
+  player._roll = lerp(player._roll || 0, clamp(-turnSign * _fwd.angleTo(_newFwd) * 6, -0.28, 0.28), clamp(3 * dt, 0, 1));
+  _lookM.lookAt(_ZERO, _newFwd, _up); _lookQ.setFromRotationMatrix(_lookM);
+  obj.quaternion.copy(new T.Quaternion().setFromAxisAngle(_newFwd, player._roll).multiply(_lookQ));
+  obj.position.addScaledVector(_newFwd, GUN_CRUISE * dt);
+  obj.position.y = clamp(obj.position.y, CFG.FLOOR + 6, 80);
+}
 function updateGunCamera(dt) {
-  // You sit in the plane's cockpit (frozen pose); the gun + view swivel within a
-  // ±45° cone around the direction the nose is pointing. No teleport — you stay
-  // exactly where the plane is.
-  const cockpit = V3(0, 0.9, 0.35).applyQuaternion(gunBase.quat); // local: up + slightly behind cockpit
-  _camRig.copy(gunBase.pos).add(cockpit);
-  camera.position.lerp(_camRig, Math.min(1, 12 * dt)); // quick settle on mode switch
-  // aim = base nose orientation, offset by yaw/pitch within the cone
+  // You ride in the cockpit of the moving plane and man the gun. The frame/ring
+  // is bolted to the plane; only the barrel + your view swivel within the ±45° cone.
+  const base = player.quaternion;
   _coneE.set(G.pitch, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
-  _aimQ.copy(gunBase.quat).multiply(_coneQ);
+  _aimQ.copy(base).multiply(_coneQ);                 // aim = nose heading + cone offset
   camera.quaternion.copy(_aimQ);
+  _camRig.copy(player.position).add(V3(0, 0.9, 0.35).applyQuaternion(base)); // cockpit seat
+  camera.position.lerp(_camRig, Math.min(1, 16 * dt));
   camera.position.x += (Math.random() - .5) * shake * .3;
   camera.position.y += (Math.random() - .5) * shake * .3;
 
-  // gun mounted in front of the cockpit, swivelling with the aim
-  const fwd = V3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const down = V3(0, -1, 0).applyQuaternion(camera.quaternion);
-  gun.position.copy(camera.position).addScaledVector(fwd, 1.7 - recoil * .25).addScaledVector(down, .5);
-  gun.quaternion.copy(camera.quaternion);
-  gun.rotateX(-recoil * .12);
+  // the gun assembly (frame) is fixed to the plane, in front of the cockpit
+  gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
+  gun.quaternion.copy(base);
+  // ONLY the barrel swivels to follow the aim (relative to the frame)
+  if (gunBarrel) gunBarrel.rotation.set(G.pitch - recoil * 0.12, G.yaw, 0);
   recoil *= Math.pow(.0008, dt);
 }
 function updateFlight(dt) {
@@ -779,6 +812,7 @@ function frame() {
     }
 
     if (G.mode === 'gun') {
+      updateGunFlight(dt);
       updateGunAim(dt);
       updateGunCamera(dt);
       cooldown -= dt;

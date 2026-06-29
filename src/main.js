@@ -15,6 +15,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { fracture, FractureOptions } from 'three-pinata';
+import { ActionQuizGate } from './action-quiz.js';
 
 const T = THREE;
 const TOKEN = window.__T;
@@ -43,10 +44,13 @@ const CFG = {
   SHIP_HP: 100, PLAYER_HP: 100, ENEMY_HP: 100,
   FLOOR: -22,
   // --- balance ---
-  ENEMY_SPEED: [9, 13],    // much calmer than before
+  ENEMY_SPEED: [5.8, 8.2],
   MAX_PURSUERS: 2,         // at most this many may peel off to chase you
-  MAX_ENEMIES_BASE: 3,     // how many fighters in the sky early on
-  MAX_ENEMIES_CAP: 6,      // hard cap as the wave ramps
+  MAX_ENEMIES_BASE: 6,     // how many fighters in the sky early on
+  MAX_ENEMIES_CAP: 12,     // hard cap as the wave ramps
+  SHIP_HIT_CHANCE: 0.04,
+  SHIP_KILL_RATIO_TARGET: 0.40,
+  CHASER_STANDOFF: 62,
 };
 
 /* ============================ RENDERER ============================== */
@@ -187,18 +191,21 @@ const tracerGeo = new T.CylinderGeometry(TRACER_R, TRACER_R, TRACER_LEN, 6); tra
 const tracerMatMine = new T.MeshBasicMaterial({ color: 0xffd070, transparent: true, opacity: .95, blending: T.AdditiveBlending, depthWrite: false });
 const tracerMatEnemy = new T.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false });
 const tracers = []; const _q = new T.Quaternion(), _zAxis = V3(0, 0, 1);
-function spawnTracer(pos, dir, dist, mine) {
+function spawnTracer(pos, dir, dist, mine, onImpact = null) {
   const mesh = new T.Mesh(tracerGeo, mine ? tracerMatMine : tracerMatEnemy);
   _q.setFromUnitVectors(_zAxis, dir); mesh.quaternion.copy(_q); scene.add(mesh);
   const head = new T.Sprite(new T.SpriteMaterial({ map: TEX.glow, color: mine ? 0xffe89a : 0xff8a5a, transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false }));
   head.scale.set(.35, .35, 1); scene.add(head);
-  tracers.push({ mesh, head, pos: pos.clone(), dir: dir.clone(), speed: rnd(150, 175), traveled: 0, max: dist || 220 });
+  tracers.push({ mesh, head, pos: pos.clone(), dir: dir.clone(), speed: mine ? rnd(112, 126) : rnd(96, 112), traveled: 0, max: dist || 220, onImpact });
 }
 function updateTracers(dt) {
   for (let i = tracers.length - 1; i >= 0; i--) { const tr = tracers[i];
-    const step = tr.speed * dt; tr.traveled += step; tr.pos.addScaledVector(tr.dir, step);
+    const step = Math.min(tr.speed * dt, Math.max(0, tr.max - tr.traveled)); tr.traveled += step; tr.pos.addScaledVector(tr.dir, step);
     tr.mesh.position.copy(tr.pos).addScaledVector(tr.dir, -TRACER_LEN * .5); tr.head.position.copy(tr.pos);
-    if (tr.traveled >= tr.max) { scene.remove(tr.mesh); scene.remove(tr.head); tr.head.material.dispose(); tracers.splice(i, 1); } }
+    if (tr.traveled >= tr.max) {
+      if (tr.onImpact) tr.onImpact(tr.pos.clone());
+      scene.remove(tr.mesh); scene.remove(tr.head); tr.head.material.dispose(); tracers.splice(i, 1);
+    } }
 }
 
 /* ============================ RAPIER DEBRIS ========================= */
@@ -327,24 +334,226 @@ const ui = {
   modeName: $('modeName'), modeDot: $('modeDot'), reticle: $('reticle'), hm: $('hm'), dmg: $('dmg'),
   hint: $('hint'), loading: $('loading'), loadBar: $('loadBar'), loadMsg: $('loadMsg'),
   start: $('start'), startBtn: $('startBtn'), end: $('end'), endIcon: $('endIcon'),
-  endTitle: $('endTitle'), endMsg: $('endMsg'), againBtn: $('againBtn'),
+  endTitle: $('endTitle'), endMsg: $('endMsg'), storyChoice: $('storyChoice'), storyCard: $('storyCard'), againBtn: $('againBtn'),
 };
 
 /* ============================ GAME STATE ========================== */
 const G = {
   mode: 'gun', running: false, over: false,
   shipHp: CFG.SHIP_HP, meHp: CFG.PLAYER_HP, ammo: CFG.AMMO_START,
-  kills: 0, timeLeft: CFG.ROUND_TIME,
+  kills: 0, spawned: 0, timeLeft: CFG.ROUND_TIME,
   yaw: 0, pitch: 0,        // gun aim within cone
+  quizActive: false, quizPausesCombat: false, actionPending: false, starting: false,
+  evasion: 0, playerSmokeT: 0, cinematic: null, endDisplayed: false,
 };
+const actionQuiz = new ActionQuizGate({
+  onActiveChange: active => {
+    G.quizActive = active;
+    if (active) {
+      firing = false;
+      if (pointerLocked) document.exitPointerLock();
+    }
+  },
+});
+const STORY_SELECTED_KEY = 'zeppelin-defense.story-selected.v1';
+const STORY_PROGRESS_PREFIX = 'zeppelin-defense.story-progress.';
+const AIRSHIP_STORIES = [
+  {
+    id: 'convoy',
+    title: 'Небесный конвой',
+    subtitle: 'Медикаменты для закрытого города',
+    description: 'Экипаж ведёт дирижабль через опасный воздушный коридор, чтобы доставить помощь в город за линией фронта.',
+    fragments: [
+      {
+        title: 'Der stille Morgen',
+        text: 'Der Zeppelin liegt über den Wolken. Unten ist Krieg, oben ist nur Wind. Die Besatzung hört den ersten Funkspruch und weiß: Heute müssen sie den Himmel halten.',
+      },
+      {
+        title: 'Die Karte im Cockpit',
+        text: 'Auf der Karte ist die Route mit Bleistift gezeichnet. Jeder Punkt bedeutet Gefahr, aber auch Hoffnung. Wenn der Zeppelin weiterfliegt, erreichen Medikamente die eingeschlossene Stadt.',
+      },
+      {
+        title: 'Das Licht am Heck',
+        text: 'In der Nacht sieht der Pilot ein kleines Licht am Heck des Luftschiffs. Es blinkt langsam. Das ist das Zeichen: Die Hülle ist beschädigt, aber der Zeppelin lebt noch.',
+      },
+      {
+        title: 'Ein Brief aus der Gondel',
+        text: 'Der Mechaniker schreibt nur einen Satz: Wir sind noch hier. Dann faltet er den Brief und steckt ihn in seine Jacke. Er glaubt daran, dass jemand ihn später lesen wird.',
+      },
+      {
+        title: 'Über dem Fluss',
+        text: 'Unter ihnen glänzt ein breiter Fluss. Für einen Moment schweigen alle. Der Himmel wirkt friedlich, doch am Horizont tauchen wieder Punkte auf. Die nächste Staffel kommt.',
+      },
+      {
+        title: 'Der letzte Funkspruch',
+        text: 'Nach der Verteidigung sendet die Funkerin eine kurze Meldung: Luftschiff gesichert. Dann lächelt sie zum ersten Mal seit Stunden. Die Geschichte fliegt weiter.',
+      },
+    ],
+  },
+  {
+    id: 'expedition',
+    title: 'Полярная экспедиция',
+    subtitle: 'Карта льдов и забытая станция',
+    description: 'Научная команда ищет метеостанцию, которая замолчала после снежной бури, и собирает данные для безопасного маршрута.',
+    fragments: [
+      {
+        title: 'Der weiße Horizont',
+        text: 'Unter dem Zeppelin liegt nur Eis. Alles sieht gleich aus. Der Navigator markiert jeden dunklen Punkt, denn irgendwo dort muss die verlorene Station stehen.',
+      },
+      {
+        title: 'Das kaputte Thermometer',
+        text: 'In der Gondel zeigt ein altes Thermometer falsche Werte. Die Forscherin lacht nicht. Sie weiß: Wenn die Zahlen lügen, wird auch die Karte gefährlich.',
+      },
+      {
+        title: 'Spuren im Schnee',
+        text: 'Am Nachmittag sieht die Besatzung Linien im Schnee. Es sind keine Straßen, sondern alte Schlitten-Spuren. Jemand war hier, und vielleicht ist jemand noch hier.',
+      },
+      {
+        title: 'Der Sturm spricht',
+        text: 'Der Wind wird so laut, dass niemand mehr normal sprechen kann. Befehle werden auf Papier geschrieben. Jeder Zettel ist klein, aber wichtig.',
+      },
+      {
+        title: 'Ein Licht unter Eis',
+        text: 'Kurz vor Sonnenuntergang blinkt etwas unter einer Eisschicht. Es ist kein Stern. Es ist die Lampe der Station, schwach, aber noch nicht erloschen.',
+      },
+      {
+        title: 'Die zweite Karte',
+        text: 'In der Station findet die Crew eine zweite Karte. Darauf steht ein neuer Weg durch die Berge. Die Expedition war nicht umsonst.',
+      },
+    ],
+  },
+  {
+    id: 'letters',
+    title: 'Письма над облаками',
+    subtitle: 'Почтовый рейс сквозь войну',
+    description: 'Почтовый дирижабль несёт письма тем, кто давно не слышал родных голосов, и каждый рейс открывает новую судьбу.',
+    fragments: [
+      {
+        title: 'Der Postsack',
+        text: 'Im Bauch des Zeppelins liegt ein schwerer Postsack. Er enthält keine Waffen, nur Briefe. Trotzdem bewacht ihn der Funker wie einen Schatz.',
+      },
+      {
+        title: 'An Anna',
+        text: 'Ein Brief beginnt mit den Worten: Liebe Anna. Der Pilot liest nicht weiter. Aber er hält den Umschlag kurz in der Hand und denkt an sein eigenes Zuhause.',
+      },
+      {
+        title: 'Die falsche Adresse',
+        text: 'Ein Umschlag hat eine fast unlesbare Adresse. Die Mannschaft diskutiert lange. Am Ende entscheidet sie: Auch dieser Brief muss ankommen.',
+      },
+      {
+        title: 'Musik im Nebel',
+        text: 'Als Nebel aufzieht, summt jemand ein altes Lied. Erst ist es leise, dann singen drei Stimmen mit. Für eine Minute klingt der Krieg weit weg.',
+      },
+      {
+        title: 'Der rote Stempel',
+        text: 'Auf einem Paket steht ein roter Stempel: dringend. Niemand weiß, was darin ist. Aber alle wissen, dass Dringlichkeit manchmal ein anderes Wort für Hoffnung ist.',
+      },
+      {
+        title: 'Antwort aus der Stadt',
+        text: 'Nach der Landung bekommt die Crew selbst einen Brief. Darin steht nur: Sie sind angekommen. Mehr braucht niemand zu lesen.',
+      },
+    ],
+  },
+];
 let player = null, propeller = null, airship = null, gun = null, gunBarrel = null;
+let gunBarrelAimAxis = V3(0, 0, -1);
 let enemyTpl = null;       // template gltf scene for cloning
 const enemies = [];
-const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 14 };
+const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 11.5 };
 // In gun mode the plane keeps flying (auto-patrol around the airship); you can't
 // steer it, only aim the gun within a ±45° cone of its nose.
-const GUN_CRUISE = 9;
+const GUN_CRUISE = 6.8;
 let shake = 0;
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function storyById(id) {
+  return AIRSHIP_STORIES.find(story => story.id === id) || AIRSHIP_STORIES[0];
+}
+
+function readSelectedStoryId() {
+  try {
+    return storyById(localStorage.getItem(STORY_SELECTED_KEY)).id;
+  } catch (_) {
+    return AIRSHIP_STORIES[0].id;
+  }
+}
+
+function saveSelectedStoryId(id) {
+  const story = storyById(id);
+  try { localStorage.setItem(STORY_SELECTED_KEY, story.id); } catch (_) {}
+  return story;
+}
+
+function storyProgressKey(story) {
+  return STORY_PROGRESS_PREFIX + story.id;
+}
+
+function readStoryIndex(story = storyById(readSelectedStoryId())) {
+  try {
+    const n = Number(localStorage.getItem(storyProgressKey(story)));
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function nextStoryFragment() {
+  const story = storyById(readSelectedStoryId());
+  const index = readStoryIndex(story);
+  const fragment = story.fragments[index % story.fragments.length];
+  try { localStorage.setItem(storyProgressKey(story), String(index + 1)); } catch (_) {}
+  renderStoryChoice();
+  return { story, fragment, number: (index % story.fragments.length) + 1, total: story.fragments.length };
+}
+
+function renderStoryChoice() {
+  if (!ui.storyChoice) return;
+  const selectedId = readSelectedStoryId();
+  const story = storyById(selectedId);
+  const progress = readStoryIndex(story);
+  const nextNumber = (progress % story.fragments.length) + 1;
+  const opened = Math.min(progress, story.fragments.length);
+  ui.storyChoice.innerHTML = `
+    <div class="story-head">
+      <div>
+        <div class="story-kicker">История</div>
+        <div class="story-name">${escapeHtml(story.title)}</div>
+      </div>
+      <div class="story-progress">${opened}/${story.fragments.length}</div>
+    </div>
+    <label>
+      <span>Сюжетная линия</span>
+      <select id="storySelect">
+        ${AIRSHIP_STORIES.map(item => `<option value="${escapeHtml(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}
+      </select>
+    </label>
+    <p>${escapeHtml(story.description)}</p>
+    <div class="story-next">${escapeHtml(story.subtitle)} · следующий фрагмент ${nextNumber}/${story.fragments.length}</div>
+  `;
+  ui.storyChoice.querySelector('#storySelect')?.addEventListener('change', event => {
+    saveSelectedStoryId(event.target.value);
+    renderStoryChoice();
+  });
+}
+
+function showVictoryStory() {
+  if (!ui.storyCard) return;
+  const { story, fragment, number, total } = nextStoryFragment();
+  const level = window.getSeaQuizSettings?.().level || 'A2';
+  ui.storyCard.innerHTML = `
+    <div class="story-kicker">${escapeHtml(story.title)} · фрагмент ${number}/${total} · ${escapeHtml(level)}</div>
+    <b>${escapeHtml(fragment.title)}</b>
+    <p>${escapeHtml(fragment.text)}</p>
+  `;
+  ui.storyCard.classList.remove('hidden');
+}
 
 /* ============================ BUILD WORLD ========================= */
 async function boot() {
@@ -389,17 +598,53 @@ async function boot() {
   // on stays put. Re-parent the barrel mesh onto a pivot at its own centre so
   // rotating the pivot swivels just the gun.
   gun.updateMatrixWorld(true);
-  let barrelMesh = null;
-  gun.traverse(n => { if (n.isMesh && /machine\s*gun/i.test(n.name)) barrelMesh = n; });
+  let barrelMesh = null, barrelScore = -Infinity;
+  gun.traverse(n => {
+    if (!n.isMesh) return;
+    const name = String(n.name || '');
+    const score =
+      (/barrel|ствол|дул/i.test(name) ? 100 : 0) +
+      (/machine\s*gun|gun|пулем/i.test(name) ? 20 : 0) -
+      (/frame|ring|mount|base|рама|кольц|стан/i.test(name) ? 35 : 0);
+    if (score > barrelScore) { barrelScore = score; barrelMesh = n; }
+  });
   if (barrelMesh) {
-    // Lift the barrel onto a SCENE-level pivot centred on the barrel, so we can
-    // drive its world orientation directly (the model's own parent frame is
-    // scaled/rotated and made local-axis rotation unreliable). The frame/ring
-    // stays in `gun`; only this pivot swivels.
+    // Put the barrel under a local swivel pivot inside the fixed gun frame.
+    // The frame follows the plane; this pivot receives the same local yaw/pitch
+    // as the reticle, so only the barrel moves.
     const box = new T.Box3().setFromObject(barrelMesh), c = new T.Vector3(); box.getCenter(c);
-    gunBarrel = new T.Group(); scene.add(gunBarrel);
-    gunBarrel.position.copy(c);
+    gunBarrel = new T.Group();
+    gunBarrel.name = 'GunBarrelSwivel';
+    gunBarrel.position.copy(gun.worldToLocal(c.clone()));
+    gun.add(gunBarrel);
+    gun.updateWorldMatrix(true, true);
+    gunBarrel.updateWorldMatrix(true, false);
     gunBarrel.attach(barrelMesh); // world-preserving; barrel now centred on the pivot
+    const geom = barrelMesh.geometry;
+    if (geom) {
+      geom.computeBoundingBox();
+      const bb = geom.boundingBox;
+      if (bb) {
+        const size = new T.Vector3(); bb.getSize(size);
+        const mid = new T.Vector3(); bb.getCenter(mid);
+        const axis = size.x > size.y && size.x > size.z ? 'x' : (size.y > size.z ? 'y' : 'z');
+        const a = mid.clone(), b = mid.clone();
+        a[axis] = bb.min[axis]; b[axis] = bb.max[axis];
+        gun.updateWorldMatrix(true, true);
+        gunBarrel.updateWorldMatrix(true, true);
+        barrelMesh.updateWorldMatrix(true, false);
+        const aw = barrelMesh.localToWorld(a.clone());
+        const bw = barrelMesh.localToWorld(b.clone());
+        const ag = gun.worldToLocal(aw.clone());
+        const bg = gun.worldToLocal(bw.clone());
+        const frontW = ag.z <= bg.z ? aw : bw;
+        const backW = ag.z <= bg.z ? bw : aw;
+        const frontL = gunBarrel.worldToLocal(frontW.clone());
+        const backL = gunBarrel.worldToLocal(backW.clone());
+        const measured = frontL.sub(backL);
+        if (measured.lengthSq() > 1e-6) gunBarrelAimAxis.copy(measured.normalize());
+      }
+    }
   }
   gun.visible = false; if (gunBarrel) gunBarrel.visible = false;
   tick();
@@ -416,6 +661,7 @@ async function boot() {
 
   scene.fog = new T.FogExp2(0x9fb6cf, 0.0016);
 
+  renderStoryChoice();
   ui.loading.classList.add('hidden');
   ui.start.classList.remove('hidden');
 }
@@ -445,8 +691,10 @@ function makeEnemy() {
   const e = {
     obj, hp: CFG.ENEMY_HP, state: 'approach', speed: rnd(CFG.ENEMY_SPEED[0], CFG.ENEMY_SPEED[1]),
     fireT: rnd(.5, 1.4), pursuer: Math.random() < 0.5, passes: 0, roll: 0, alive: true, target: 'ship',
+    smokeT: rnd(0, .2), orbit: Math.random() < 0.5 ? -1 : 1,
   };
   enemies.push(e);
+  if (G.running && !G.over) G.spawned++;
 }
 function chaserCount() { let n = 0; for (const e of enemies) if (e.alive && e.state === 'chase') n++; return n; }
 function cloneSkinned(o) { return o.clone(true); }
@@ -478,6 +726,54 @@ function flyToward(e, desired, dt, turnRate) {
   obj.position.addScaledVector(_newFwd, e.speed * dt);
 }
 
+function damageSmokeLevel(hp, maxHp) {
+  const r = hp / maxHp;
+  if (r <= 0.25) return 3;
+  if (r <= 0.5) return 2;
+  if (r <= 0.75) return 1;
+  return 0;
+}
+
+function emitDamageSmoke(obj, level) {
+  if (!obj || level <= 0) return;
+  const back = V3(0, 0.15, 0.8 + level * 0.18).applyQuaternion(obj.quaternion);
+  const pos = obj.position.clone().add(back).add(randDir().multiplyScalar(0.15 + level * 0.08));
+  const vel = V3(0, 0.25 + level * 0.08, 0.35 + level * 0.2).applyQuaternion(obj.quaternion)
+    .add(randDir().multiplyScalar(0.18 * level));
+  spawn({
+    map: TEX.smoke, blend: T.NormalBlending, pos, vel,
+    s0: 0.16 + level * 0.12, s1: 0.7 + level * 0.65, life: 0.8 + level * 0.45,
+    grav: 0.2, drag: 1.1, rot0: Math.random() * 6, rot: rnd(-0.8, 0.8),
+    grad: level >= 3 ? GR.smoke : GR.msmoke, op: opSmoke, bright: 0.28 + level * 0.13,
+  });
+  if (level >= 3 && Math.random() < 0.38) {
+    spawn({ map: TEX.spark, blend: T.AdditiveBlending, pos: pos.clone(), vel: randDir().multiplyScalar(rnd(.5, 1.8)), s0: rnd(.04, .08), s1: .02, life: rnd(.22, .45), grav: -2, drag: 1, grad: GR.ember, op: opEmber, bright: .9 });
+  }
+}
+
+function updateEnemyDamageSmoke(e, dt) {
+  const level = damageSmokeLevel(e.hp, CFG.ENEMY_HP);
+  if (!level) return;
+  e.smokeT -= dt;
+  const every = level === 1 ? 0.22 : level === 2 ? 0.12 : 0.065;
+  if (e.smokeT <= 0) {
+    e.smokeT = every;
+    emitDamageSmoke(e.obj, level);
+  }
+}
+
+function updatePlayerDamageSmoke(dt) {
+  if (!player || !G.running || G.over) return;
+  const level = damageSmokeLevel(G.meHp, CFG.PLAYER_HP);
+  if (!level) return;
+  G.playerSmokeT -= dt;
+  const every = level === 1 ? 0.2 : level === 2 ? 0.1 : 0.055;
+  if (G.playerSmokeT <= 0) {
+    G.playerSmokeT = every;
+    emitDamageSmoke(player, level);
+  }
+}
+
 function updateEnemies(dt) {
   ui.enemyCount.textContent = enemies.length;
   const ship = airship.position;
@@ -485,21 +781,33 @@ function updateEnemies(dt) {
     const e = enemies[i]; if (!e.alive) continue;
     const obj = e.obj;
     const distShip = obj.position.distanceTo(ship);
+    updateEnemyDamageSmoke(e, dt);
 
     if (e.state === 'chase') {
       // pursuer that broke off: hunt the player and shoot at them
-      const desired = player.position.clone().sub(obj.position); const d = desired.length(); desired.normalize();
-      flyToward(e, desired, dt, 1.0);
+      const toPlayer = player.position.clone().sub(obj.position);
+      const d = toPlayer.length();
+      const playerDir = d > 1e-4 ? toPlayer.clone().multiplyScalar(1 / d) : V3(0, 0, -1);
+      const lateral = playerDir.clone().cross(_up).multiplyScalar(e.orbit || 1);
+      let desired;
+      if (d < CFG.CHASER_STANDOFF) {
+        desired = playerDir.clone().negate().add(lateral.multiplyScalar(0.55)).normalize();
+      } else if (d < CFG.CHASER_STANDOFF + 18) {
+        desired = lateral.add(playerDir.multiplyScalar(0.18)).normalize();
+      } else {
+        desired = playerDir;
+      }
+      flyToward(e, desired, dt, d < CFG.CHASER_STANDOFF + 18 ? 1.45 : 1.0);
       e.fireT -= dt;
-      const near = clamp(1 - d / 90, 0, 1);
-      if (e.fireT <= 0 && d < 90) { e.fireT = lerp(2.0, 0.7, near); e.target = 'player'; enemyFire(e, player.position, near); }
+      const near = clamp(1 - d / 110, 0, 1);
+      if (e.fireT <= 0 && d < 110) { e.fireT = lerp(2.2, 0.85, near); e.target = 'player'; enemyFire(e, player.position, near); }
     } else if (e.state === 'approach') {
       // run in on the airship, firing more accurately the closer we get
       const desired = ship.clone().sub(obj.position).normalize();
       flyToward(e, desired, dt, 0.9);
       e.fireT -= dt;
       const near = clamp(1 - distShip / 100, 0, 1);
-      if (e.fireT <= 0 && distShip < 100) { e.fireT = lerp(1.8, 0.6, near); e.target = 'ship'; enemyFire(e, ship, near); }
+      if (e.fireT <= 0 && distShip < 100) { e.fireT = lerp(1.55, 0.48, near); e.target = 'ship'; enemyFire(e, ship, near); }
       if (distShip < 24) e.state = 'pass';
     } else if (e.state === 'pass') {
       // punch straight through, past the airship
@@ -529,16 +837,44 @@ function updateEnemies(dt) {
 
 function enemyFire(e, targetPos, near) {
   const muzzle = e.obj.position.clone().add(V3(0, 0, -1).applyQuaternion(e.obj.quaternion).multiplyScalar(CFG.ENEMY.size * .6));
-  const dir = targetPos.clone().sub(muzzle).normalize();
-  // visual scatter
-  dir.x += rnd(-1, 1) * .03; dir.y += rnd(-1, 1) * .03; dir.normalize();
-  spawnTracer(muzzle, dir, muzzle.distanceTo(targetPos) + 6, false);
-  muzzleFlash(muzzle, dir);
-  // hit chance scales with proximity
-  if (Math.random() < near * 0.4) {
-    if (e.target === 'player') { damagePlayer(Math.round(rnd(2, 5))); }
-    else { damageShip(Math.round(rnd(2, 4)), targetPos); }
+  const intendedTarget = targetPos.clone();
+  const targetKind = e.target;
+  let aimPoint = targetPos.clone();
+  let shipHit = false, defenseDeficit = 0, alivePressure = 0;
+  if (targetKind === 'ship') {
+    const totalThreat = Math.max(1, G.spawned || (G.kills + enemies.length));
+    const killRatio = G.kills / totalThreat;
+    defenseDeficit = clamp((CFG.SHIP_KILL_RATIO_TARGET - killRatio) / CFG.SHIP_KILL_RATIO_TARGET, 0, 1);
+    alivePressure = clamp(enemies.length / CFG.MAX_ENEMIES_CAP, 0, 1);
+    const hitChance = clamp(CFG.SHIP_HIT_CHANCE + near * 0.14 + defenseDeficit * 0.06 + alivePressure * 0.03, 0.04, 0.36);
+    shipHit = Math.random() < hitChance;
+    if (shipHit) {
+      aimPoint.add(V3(rnd(-9, 9), rnd(-3.2, 3.2), rnd(-5, 5)));
+    } else {
+      const miss = lerp(30, 18, near);
+      const missDir = V3(rnd(-1, 1), rnd(-0.35, 0.35), rnd(-1, 1));
+      if (missDir.lengthSq() < 1e-4) missDir.set(1, 0, 0);
+      aimPoint.add(missDir.normalize().multiplyScalar(rnd(miss, miss * 1.45)));
+    }
   }
+  const aimVector = aimPoint.clone().sub(muzzle);
+  const dir = aimVector.clone().normalize();
+  if (targetKind === 'player') {
+    dir.x += rnd(-1, 1) * .03; dir.y += rnd(-1, 1) * .03; dir.normalize();
+  }
+  const dist = aimVector.length() + (targetKind === 'ship' ? 0 : 6);
+  spawnTracer(muzzle, dir, dist, false, (impactPoint) => {
+    if (G.over) return;
+    if (targetKind === 'player') {
+      const movementMiss = clamp(1 - player.position.distanceTo(intendedTarget) / 18, 0.15, 1);
+      const evasionPenalty = clamp(1 - G.evasion * 0.68, 0.25, 1);
+      if (Math.random() < near * 0.4 * movementMiss * evasionPenalty) damagePlayer(Math.round(rnd(2, 5)));
+    } else if (shipHit) {
+      const damage = Math.round(rnd(2, 4) + near * 0.9 + defenseDeficit * 0.9 + alivePressure * 0.6);
+      damageShip(damage, impactPoint);
+    }
+  });
+  muzzleFlash(muzzle, dir);
 }
 
 /* ============================ DAMAGE / DEATH ====================== */
@@ -547,14 +883,14 @@ function damageShip(d, at) {
   G.shipHp = Math.max(0, G.shipHp - d);
   setShipHp();
   impact((at || airship.position).clone().add(randDir().multiplyScalar(3)).setY(airship.position.y + rnd(-3, 3)), V3(0, 1, 0), 1.1);
-  if (G.shipHp <= 0) endGame(false, 'Дирижабль уничтожен.');
+  if (G.shipHp <= 0) cinematicLoss('ship', 'Дирижабль уничтожен.');
 }
 function damagePlayer(d) {
   if (G.over) return;
   G.meHp = Math.max(0, G.meHp - d); setMeHp();
   ui.dmg.style.opacity = clamp(d / 8, .3, 1); setTimeout(() => ui.dmg.style.opacity = 0, 120);
   shake = Math.min(1.4, shake + .25);
-  if (G.meHp <= 0) endGame(false, 'Твой борт сбит.');
+  if (G.meHp <= 0) cinematicLoss('player', 'Твой борт сбит.');
 }
 function killEnemy(e, at) {
   e.alive = false;
@@ -569,6 +905,35 @@ function killEnemy(e, at) {
   G.kills++; ui.kills.textContent = G.kills;
 }
 
+function explodeLargestMesh(root, center, baseVel, fragments, tint) {
+  if (!root) return;
+  let live = null;
+  root.traverse(n => { if (n.isMesh && n.geometry?.attributes?.position && (!live || n.geometry.attributes.position.count > live.geometry.attributes.position.count)) live = n; });
+  bigBoom(center, root === airship ? 2.3 : 1.6);
+  if (live) {
+    try { fractureMesh(live, center, baseVel || V3(), fragments, tint); }
+    catch (err) { console.warn('large fracture failed', err); }
+  }
+  root.visible = false;
+}
+
+function cinematicLoss(kind, msg) {
+  if (G.over) return;
+  G.over = true; G.running = false; firing = false;
+  renderer.domElement.style.cursor = 'default'; if (pointerLocked) document.exitPointerLock();
+  const target = (kind === 'ship' ? airship : player).position.clone();
+  if (kind === 'ship') explodeLargestMesh(airship, target, V3(0, 0, 0), 22, 0xa08c62);
+  else {
+    const baseVel = V3(0, 0, -1).applyQuaternion(player.quaternion).multiplyScalar(Math.max(8, flight.speed));
+    explodeLargestMesh(player, target, baseVel, 12, 0x2f6bd8);
+    if (gun) gun.visible = false;
+    if (gunBarrel) gunBarrel.visible = false;
+  }
+  shake = Math.max(shake, 1.4);
+  G.cinematic = { target, t: 0, kind };
+  setTimeout(() => showEndOverlay(false, msg), 2700);
+}
+
 /* ============================ SHOOTING ============================ */
 const ray = new T.Raycaster();
 let firing = false, cooldown = 0; const FIRE_DT = 0.08;
@@ -577,8 +942,9 @@ function fire() {
   if (G.ammo <= 0) { return; }
   // shots follow the aim; muzzle sits just under the view, where the barrel points
   const aimDir = V3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const muzzle = camera.position.clone().addScaledVector(aimDir, 1.6)
-    .addScaledVector(V3(0, -1, 0).applyQuaternion(camera.quaternion), 0.35);
+  const muzzle = gunBarrel
+    ? gunBarrel.getWorldPosition(new T.Vector3()).addScaledVector(aimDir, 0.75)
+    : camera.position.clone().addScaledVector(aimDir, 1.6).addScaledVector(V3(0, -1, 0).applyQuaternion(camera.quaternion), 0.35);
   const dir = aimDir.clone();
   dir.x += rnd(-1, 1) * .006; dir.y += rnd(-1, 1) * .006; dir.normalize();
 
@@ -604,19 +970,19 @@ function fire() {
       if (ang < angR && d < best) { best = d; hitE = e; hitPoint = camera.position.clone().addScaledVector(dir, d); }
     }
   }
-  const dist = hitPoint ? camera.position.distanceTo(hitPoint) : 300;
-  spawnTracer(muzzle, dir, dist, true);
-  muzzleFlash(muzzle, dir);
-  muzzleLight.position.copy(muzzle); muzzleLightI = 2.6;
-  recoil = Math.min(1.4, recoil + 1); shake = Math.min(1.0, shake + .04);
-
-  if (hitE && hitPoint) {
-    impact(hitPoint, dir.clone().negate(), 1);
-    const v = hitPoint.clone().project(camera);
+  const tracerDir = hitPoint ? hitPoint.clone().sub(muzzle).normalize() : dir;
+  const dist = hitPoint ? muzzle.distanceTo(hitPoint) : 300;
+  spawnTracer(muzzle, tracerDir, dist, true, hitE && hitPoint ? (impactPoint) => {
+    if (!hitE.alive || G.over) return;
+    impact(impactPoint, tracerDir.clone().negate(), 1);
+    const v = impactPoint.clone().project(camera);
     popHM((v.x * .5 + .5) * innerWidth, (-v.y * .5 + .5) * innerHeight);
     hitE.hp -= Math.round(rnd(8, 14));
-    if (hitE.hp <= 0) killEnemy(hitE, hitPoint);
-  }
+    if (hitE.hp <= 0) killEnemy(hitE, impactPoint);
+  } : null);
+  muzzleFlash(muzzle, tracerDir);
+  muzzleLight.position.copy(muzzle); muzzleLightI = 2.6;
+  recoil = Math.min(1.4, recoil + 1); shake = Math.min(1.0, shake + .04);
   G.ammo--; setAmmo();
 }
 
@@ -624,8 +990,8 @@ function fire() {
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'Tab') { e.preventDefault(); toggleMode(); }
-  if (e.code === 'KeyR') reload();
+  if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) requestToggleMode(); }
+  if (e.code === 'KeyR') { e.preventDefault(); if (!e.repeat) requestReload(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 // debug helpers (only with ?debug) — verify Voronoi+Rapier death without aiming
@@ -647,7 +1013,7 @@ addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] =
 let pointerLocked = false;
 const _canvas = renderer.domElement;
 _canvas.addEventListener('pointerdown', () => {
-  if (!G.running || G.mode !== 'gun') return;
+  if (!G.running || G.mode !== 'gun' || G.quizActive) return;
   if (!pointerLocked) { _canvas.requestPointerLock(); } // first click: grab the cursor
   firing = true;                                        // and start firing
 });
@@ -657,16 +1023,41 @@ document.addEventListener('pointerlockchange', () => {
   if (!pointerLocked) firing = false; // Escape released the cursor — stop shooting
 });
 addEventListener('mousemove', e => {
-  if (G.mode === 'gun' && pointerLocked) {
+  if (G.mode === 'gun' && pointerLocked && !G.quizActive) {
     G.yaw = clamp(G.yaw - e.movementX * CFG.AIM_SENS, -CFG.AIM_CONE, CFG.AIM_CONE);
     G.pitch = clamp(G.pitch - e.movementY * CFG.AIM_SENS, -CFG.AIM_CONE, CFG.AIM_CONE);
   }
 });
 
-ui.modeBtn.onclick = toggleMode;
-ui.reloadBtn.onclick = reload;
+ui.modeBtn.onclick = requestToggleMode;
+ui.reloadBtn.onclick = requestReload;
 ui.startBtn.onclick = startGame;
 ui.againBtn.onclick = () => location.reload();
+
+async function requestAction(action, context, apply) {
+  if (!G.running || G.over || G.actionPending || actionQuiz.active) return;
+  G.actionPending = true;
+  G.quizPausesCombat = !(action === 'reload' || (action === 'mode' && context.mode === 'flight'));
+  firing = false;
+  try {
+    const correct = await actionQuiz.request(action, context);
+    if (correct) apply();
+  } catch (error) {
+    console.warn('Action quiz failed:', error);
+  } finally {
+    G.actionPending = false;
+    G.quizPausesCombat = false;
+  }
+}
+
+function requestToggleMode() {
+  requestAction('mode', { mode: G.mode === 'gun' ? 'flight' : 'gun' }, toggleMode);
+}
+
+function requestReload() {
+  if (!G.running || G.over) return;
+  requestAction('reload', { ammo: G.ammo }, reload);
+}
 
 function toggleMode() {
   if (!G.running) return;
@@ -714,6 +1105,7 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
+const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelTargetDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
 function updateGunFlight(dt) {
@@ -723,29 +1115,33 @@ function updateGunFlight(dt) {
   obj.position.addScaledVector(_fwd, GUN_CRUISE * dt);
   obj.position.y = clamp(obj.position.y, CFG.FLOOR + 6, 80);
   resolvePlayerCollisions();
+  G.evasion = Math.max(0, G.evasion - dt * 0.9);
 }
-const _bq = new T.Quaternion();
 function updateGunCamera(dt) {
   // You ride in the cockpit of the moving plane and man the gun. The frame/ring
   // is bolted to the plane; only the barrel + your view swivel within the ±45° cone.
   const base = player.quaternion;
   _coneE.set(G.pitch, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
   _aimQ.copy(base).multiply(_coneQ);                 // aim = nose heading + cone offset
-  camera.quaternion.copy(_aimQ);
-  _camRig.copy(player.position).add(V3(0, 0.9, 0.35).applyQuaternion(base)); // cockpit seat
-  camera.position.lerp(_camRig, Math.min(1, 16 * dt));
-  camera.position.x += (Math.random() - .5) * shake * .3;
-  camera.position.y += (Math.random() - .5) * shake * .3;
 
   // the gun frame/ring is fixed to the plane, in front of the cockpit
   gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
   gun.quaternion.copy(base);
-  // ONLY the barrel swivels — driven in world space to follow the aim exactly
+  // ONLY the barrel swivels inside the fixed frame. Its measured mesh axis is
+  // aligned to the exact same local direction as the reticle.
   if (gunBarrel) {
-    gunBarrel.position.copy(gun.position).add(V3(0, 0.18, -0.1).applyQuaternion(base));
-    _bq.copy(_aimQ).multiply(_coneRecoil(-recoil * 0.12));
-    gunBarrel.quaternion.copy(_bq);
+    _barrelTargetDir.set(0, 0, -1).applyQuaternion(_coneQ).normalize();
+    _barrelAimQ.setFromUnitVectors(gunBarrelAimAxis, _barrelTargetDir);
+    gunBarrel.quaternion.copy(_barrelAimQ);
   }
+  gun.updateWorldMatrix(true, true);
+  camera.quaternion.copy(_aimQ);
+  _aimDir.set(0, 0, -1).applyQuaternion(_aimQ);
+  if (gunBarrel) _camRig.copy(gunBarrel.getWorldPosition(_gunEye)).addScaledVector(_aimDir, -1.05);
+  else _camRig.copy(player.position).add(V3(0, 0.75, -0.25).applyQuaternion(base));
+  camera.position.lerp(_camRig, Math.min(1, 20 * dt));
+  camera.position.x += (Math.random() - .5) * shake * .18;
+  camera.position.y += (Math.random() - .5) * shake * .18;
   recoil *= Math.pow(.0008, dt);
 }
 const _rq = new T.Quaternion(), _rqe = new T.Euler();
@@ -775,15 +1171,17 @@ function resolvePlayerCollisions() {
 }
 function updateFlight(dt) {
   // controls
-  const pitchIn = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
-  const rollIn = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-  const yawIn = (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0);
-  flight.pitch += pitchIn * 1.4 * dt;
-  flight.roll = lerp(flight.roll, -rollIn * 0.6, clamp(4 * dt, 0, 1));
-  flight.yaw += yawIn * 1.0 * dt + rollIn * 0.5 * dt; // banking turns
+  const pitchIn = ((keys.KeyW || keys.ArrowUp) ? 1 : 0) - ((keys.KeyS || keys.ArrowDown) ? 1 : 0);
+  const rollIn = ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft) ? 1 : 0);
+  const yawIn = ((keys.KeyE || keys.ArrowRight) ? 1 : 0) - ((keys.KeyQ || keys.ArrowLeft) ? 1 : 0);
+  const maneuver = Math.min(1, (Math.abs(pitchIn) + Math.abs(rollIn) + Math.abs(yawIn)) / 2);
+  G.evasion = clamp(G.evasion + maneuver * dt * 1.5 - (maneuver ? 0 : dt * 0.75), 0, 1);
+  flight.pitch += pitchIn * 2.05 * dt;
+  flight.roll = lerp(flight.roll, -rollIn * 0.72, clamp(7 * dt, 0, 1));
+  flight.yaw -= (yawIn * 1.65 + rollIn * 1.05) * dt; // right key turns right, left key turns left
   flight.pitch = clamp(flight.pitch, -1.1, 1.1);
   const throttle = (keys.ShiftLeft || keys.ShiftRight ? 1 : 0) - (keys.ControlLeft || keys.ControlRight ? 1 : 0);
-  flight.speed = clamp(flight.speed + throttle * 12 * dt, 6, 34);
+  flight.speed = clamp(flight.speed + throttle * 8 * dt, 4.5, 27);
 
   const q = new T.Quaternion().setFromEuler(new T.Euler(flight.pitch, flight.yaw, flight.roll, 'YXZ'));
   const fwd = V3(0, 0, -1).applyQuaternion(q);
@@ -804,42 +1202,82 @@ function updateFlight(dt) {
   camera.position.y += (Math.random() - .5) * shake * .3;
 }
 
+function updateCinematicCamera(dt) {
+  if (!G.cinematic) return false;
+  G.cinematic.t += dt;
+  const target = G.cinematic.target;
+  const a = G.cinematic.t * 0.42;
+  const desired = target.clone().add(V3(Math.sin(a) * 18, 8 + Math.sin(a * 0.7) * 2, 22 + Math.cos(a) * 9));
+  camera.position.lerp(desired, 1 - Math.pow(0.003, dt));
+  camera.lookAt(target.clone().add(V3(0, 1.5, 0)));
+  camera.position.x += (Math.random() - .5) * shake * .22;
+  camera.position.y += (Math.random() - .5) * shake * .22;
+  return true;
+}
+
 /* ============================ SPAWN DIRECTOR ===================== */
 let spawnT = 0;
 function updateSpawns(dt) {
   spawnT -= dt;
   const elapsed = CFG.ROUND_TIME - G.timeLeft;
-  const target = Math.min(CFG.MAX_ENEMIES_CAP, CFG.MAX_ENEMIES_BASE + Math.floor(elapsed / 40));
+  const target = Math.min(CFG.MAX_ENEMIES_CAP, CFG.MAX_ENEMIES_BASE + Math.floor(elapsed / 20));
   if (spawnT <= 0 && enemies.length < target) {
-    makeEnemy(); spawnT = rnd(2.6, 4.5);
+    makeEnemy(); spawnT = rnd(1.5, 2.8);
   }
 }
 
 /* ============================ GAME FLOW ========================= */
-function startGame() {
+async function startGame() {
+  if (G.starting || G.running) return;
+  G.starting = true;
+  ui.startBtn.disabled = true;
+  ui.startBtn.textContent = 'Готовлю задания...';
+  try {
+    await actionQuiz.prepare(20);
+  } catch (error) {
+    console.warn('Question prefetch failed, fallback questions will be used:', error);
+  }
+  if (ui.storyCard) ui.storyCard.classList.add('hidden');
   ui.start.classList.add('hidden');
+  while (enemies.length) {
+    const e = enemies.pop();
+    if (e?.obj) scene.remove(e.obj);
+  }
   G.running = true;
-  // start near the airship, nose pointed at it; gun will aim where the nose looks
-  player.position.copy(airship.position).add(V3(16, -2, 30));
-  faceForward(player, airship.position);
+  G.starting = false;
+  G.over = false; G.endDisplayed = false; G.cinematic = null; G.evasion = 0; G.spawned = 0;
+  G.shipHp = CFG.SHIP_HP; G.meHp = CFG.PLAYER_HP; G.ammo = CFG.AMMO_START;
+  G.kills = 0; G.timeLeft = CFG.ROUND_TIME; G.playerSmokeT = 0; spawnT = 0;
+  setShipHp(); setMeHp(); setAmmo(); setTime(); ui.kills.textContent = G.kills;
+  // start in flight control, offset from the airship and flying past it, not into it
+  player.position.copy(airship.position).add(V3(28, -1, 42));
+  faceForward(player, player.position.clone().add(V3(0, 0, -80)));
   flight.pos.copy(player.position);
-  G.mode = 'flight'; toggleMode(); // flip to gun + sync hint (freezes current pose)
-  ui.reticle.classList.add('show');
-  for (let i = 0; i < 3; i++) makeEnemy();
+  G.mode = 'gun'; toggleMode(); // flip to flight + sync hint
+  ui.reticle.classList.remove('show');
+  for (let i = 0; i < CFG.MAX_ENEMIES_BASE; i++) makeEnemy();
 }
-async function endGame(won, msg) {
-  if (G.over) return;
-  G.over = true; G.running = false;
-  firing = false; renderer.domElement.style.cursor = 'default'; if (pointerLocked) document.exitPointerLock();
+async function showEndOverlay(won, msg) {
+  if (G.endDisplayed) return;
+  G.endDisplayed = true;
   ui.endIcon.textContent = won ? '🏆' : '💥';
   ui.endTitle.textContent = won ? 'Дирижабль удержан' : 'Поражение';
   ui.end.classList.toggle('win', won); ui.end.classList.toggle('lose', !won);
   ui.endMsg.textContent = `${msg}  Сбито: ${G.kills}.`;
+  if (won) showVictoryStory();
+  else if (ui.storyCard) ui.storyCard.classList.add('hidden');
   ui.end.classList.remove('hidden');
   try {
     const r = await fetch('/api/score', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kills: G.kills, won, survived: CFG.ROUND_TIME - G.timeLeft }) });
     const j = await r.json(); if (j && j.best != null) ui.endMsg.textContent += `  Рекорд: ${j.best}.`;
   } catch (e) {}
+}
+
+async function endGame(won, msg) {
+  if (G.over) return;
+  G.over = true; G.running = false;
+  firing = false; renderer.domElement.style.cursor = 'default'; if (pointerLocked) document.exitPointerLock();
+  showEndOverlay(won, msg);
 }
 
 /* ============================ MAIN LOOP ========================= */
@@ -849,29 +1287,37 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); tt += dt;
 
   if (G.running && !G.over) {
-    G.timeLeft -= dt; if (G.timeLeft <= 0) { G.timeLeft = 0; setTime(); endGame(true, 'Время вышло — ты выстоял.'); }
-    setTime();
-    updateSpawns(dt);
-    updateEnemies(dt);
-
-    // propeller spins faster in flight (with throttle), idles in gun mode
-    if (propeller) {
-      const rps = CFG.PROP_RPS * (G.mode === 'flight' ? (0.6 + flight.speed / 34 * 0.8) : 0.55);
-      propeller.rotation.x += rps * Math.PI * 2 * dt;
-    }
-
-    if (G.mode === 'gun') {
-      updateGunFlight(dt);
-      updateGunCamera(dt);
-      cooldown -= dt;
-      if (firing && G.ammo > 0 && cooldown <= 0) { fire(); cooldown = FIRE_DT; }
+    if (G.quizActive && G.quizPausesCombat) {
+      firing = false;
+      setTime();
     } else {
-      updateFlight(dt);
+      G.timeLeft -= dt; if (G.timeLeft <= 0) { G.timeLeft = 0; setTime(); endGame(true, 'Время вышло — ты выстоял.'); }
+      setTime();
+      updateSpawns(dt);
+      updateEnemies(dt);
+      updatePlayerDamageSmoke(dt);
+
+      // propeller spins faster in flight (with throttle), idles in gun mode
+      if (propeller) {
+        const rps = CFG.PROP_RPS * (G.mode === 'flight' ? (0.6 + flight.speed / 27 * 0.8) : 0.55);
+        propeller.rotation.x += rps * Math.PI * 2 * dt;
+      }
+
+      if (G.mode === 'gun') {
+        updateGunFlight(dt);
+        updateGunCamera(dt);
+        cooldown -= dt;
+        if (firing && G.ammo > 0 && cooldown <= 0) { fire(); cooldown = FIRE_DT; }
+      } else {
+        updateFlight(dt);
+      }
     }
   } else {
-    // idle orbit before start
-    camera.position.lerp(_camPos.set(Math.sin(tt * .15) * 26, 14, 30 + Math.cos(tt * .15) * 6), 0.02);
-    if (airship) camera.lookAt(airship.position);
+    if (!updateCinematicCamera(dt)) {
+      // idle orbit before start
+      camera.position.lerp(_camPos.set(Math.sin(tt * .15) * 26, 14, 30 + Math.cos(tt * .15) * 6), 0.02);
+      if (airship) camera.lookAt(airship.position);
+    }
   }
 
   muzzleLightI *= Math.pow(.0001, dt); muzzleLight.intensity = muzzleLightI;

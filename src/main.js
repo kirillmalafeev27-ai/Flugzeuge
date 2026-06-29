@@ -637,25 +637,31 @@ if (location.search.includes('debug')) {
   window.__ramAirship = () => player.position.copy(airship.position);
   window.__spawnOnAim = (d = 40) => { makeEnemy(); const e = enemies[enemies.length - 1]; const f = V3(0, 0, -1).applyQuaternion(camera.quaternion); e.obj.position.copy(camera.position).addScaledVector(f, d); e.pursuer = false; return e; };
   window.__fire = () => fire();
+  window.__aim = () => ({yaw:+G.yaw.toFixed(3), pitch:+G.pitch.toFixed(3), locked: typeof pointerLocked!=="undefined"?pointerLocked:null});
 }
 addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] = false; });
 
-// Absolute aiming: the view pans toward wherever the cursor is (no click/lock
-// needed). Cursor at screen edge ≈ full ±45° deflection.
-let aimNX = 0, aimNY = 0; // -1..1 from screen centre
-addEventListener('mousemove', e => {
-  aimNX = (e.clientX / innerWidth) * 2 - 1;
-  aimNY = (e.clientY / innerHeight) * 2 - 1;
+// Pointer-lock aiming: click (LMB) on the scene hides the cursor and aims the gun
+// with relative mouse movement (no edge-clamping, so it never "sticks"); Escape
+// releases the cursor again so you can use the HUD buttons.
+let pointerLocked = false;
+const _canvas = renderer.domElement;
+_canvas.addEventListener('pointerdown', () => {
+  if (!G.running || G.mode !== 'gun') return;
+  if (!pointerLocked) { _canvas.requestPointerLock(); } // first click: grab the cursor
+  firing = true;                                        // and start firing
 });
-function updateGunAim(dt) {
-  const tYaw = clamp(-aimNX * CFG.AIM_CONE * 1.15, -CFG.AIM_CONE, CFG.AIM_CONE);
-  const tPitch = clamp(-aimNY * CFG.AIM_CONE * 1.15, -CFG.AIM_CONE, CFG.AIM_CONE);
-  const k = Math.min(1, 11 * dt); // nimble but smooth
-  G.yaw = lerp(G.yaw, tYaw, k);
-  G.pitch = lerp(G.pitch, tPitch, k);
-}
-renderer.domElement.addEventListener('pointerdown', () => { if (G.mode === 'gun') firing = true; });
 addEventListener('pointerup', () => { firing = false; });
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === _canvas;
+  if (!pointerLocked) firing = false; // Escape released the cursor — stop shooting
+});
+addEventListener('mousemove', e => {
+  if (G.mode === 'gun' && pointerLocked) {
+    G.yaw = clamp(G.yaw - e.movementX * CFG.AIM_SENS, -CFG.AIM_CONE, CFG.AIM_CONE);
+    G.pitch = clamp(G.pitch - e.movementY * CFG.AIM_SENS, -CFG.AIM_CONE, CFG.AIM_CONE);
+  }
+});
 
 ui.modeBtn.onclick = toggleMode;
 ui.reloadBtn.onclick = reload;
@@ -672,9 +678,10 @@ function toggleMode() {
   ui.modeDot.style.boxShadow = '0 0 12px 2px ' + (gunMode ? 'var(--accent)' : 'var(--sky)');
   ui.reticle.classList.toggle('show', gunMode);
   ui.hint.innerHTML = gunMode
-    ? '<kbd>ЛКМ</kbd> огонь · <kbd>мышь</kbd> наводка (±45°) · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> в полёт'
+    ? '<kbd>ЛКМ</kbd> навести и огонь · <kbd>мышь</kbd> наводка ±45° · <kbd>Esc</kbd> вернуть курсор · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> полёт'
     : '<kbd>W/S</kbd> тангаж · <kbd>A/D</kbd> крен · <kbd>Q/E</kbd> рыскание · <kbd>Shift/Ctrl</kbd> газ · <kbd>TAB</kbd> к пулемёту';
-  renderer.domElement.style.cursor = gunMode ? 'none' : 'default';
+  renderer.domElement.style.cursor = 'default'; // pointer-lock hides it while aiming
+  if (!gunMode && pointerLocked) document.exitPointerLock();
   gun.visible = gunMode;
   if (gunBarrel) gunBarrel.visible = gunMode;
   if (gunMode) {
@@ -823,7 +830,7 @@ function startGame() {
 async function endGame(won, msg) {
   if (G.over) return;
   G.over = true; G.running = false;
-  firing = false; renderer.domElement.style.cursor = 'default';
+  firing = false; renderer.domElement.style.cursor = 'default'; if (pointerLocked) document.exitPointerLock();
   ui.endIcon.textContent = won ? '🏆' : '💥';
   ui.endTitle.textContent = won ? 'Дирижабль удержан' : 'Поражение';
   ui.end.classList.toggle('win', won); ui.end.classList.toggle('lose', !won);
@@ -855,7 +862,6 @@ function frame() {
 
     if (G.mode === 'gun') {
       updateGunFlight(dt);
-      updateGunAim(dt);
       updateGunCamera(dt);
       cooldown -= dt;
       if (firing && G.ammo > 0 && cooldown <= 0) { fire(); cooldown = FIRE_DT; }

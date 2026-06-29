@@ -363,15 +363,10 @@ async function boot() {
   airship = an.pivot; airship.position.set(0, 10, -36);
   enableShadows(airship, true, true); scene.add(airship); tick();
 
-  // player plane (blue) + propeller
-  ui.loadMsg.textContent = 'Покраска борта…';
+  // player plane — keep its ORIGINAL texture (just stop it mirroring the sky)
+  ui.loadMsg.textContent = 'Подготовка борта…';
   const pg = await loadGLB('player_plane.glb');
-  pg.scene.traverse(n => {
-    if (n.isMesh) {
-      const isProp = /проп|prop/i.test(n.name) || /проп|prop/i.test(n.parent?.name || '');
-      n.material = new T.MeshStandardMaterial({ color: isProp ? 0x15171c : CFG.PLAYER.color, metalness: .65, roughness: .4 });
-    }
-  });
+  fixOriginalMaterial(pg.scene);
   const pn = normalize(pg.scene, CFG.PLAYER.size, CFG.PLAYER.rot);
   player = pn.pivot; enableShadows(player, true, false);
   propeller = null;

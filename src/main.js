@@ -566,6 +566,10 @@ const AIRSHIP_STORIES = [
 ];
 let player = null, propeller = null, airship = null, gun = null, gunBarrel = null;
 let gunBarrelAimAxis = V3(0, 0, -1);
+// Fixed orientation that brings the barrel's measured axis to point straight
+// forward at neutral aim; the live cone rotation is composed onto this so the
+// barrel (and its ring sight) rotates by exactly the same yaw/pitch as the camera.
+const gunBarrelRestQuat = new T.Quaternion();
 let enemyTpl = null;       // template gltf scene for cloning
 const enemies = [];
 const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 11.5 };
@@ -764,6 +768,10 @@ async function boot() {
         if (measured.lengthSq() > 1e-6) gunBarrelAimAxis.copy(measured.normalize());
       }
     }
+    // rest orientation: measured barrel axis -> local forward. The per-frame cone
+    // rotation is multiplied onto this (see updateGunCamera) so the barrel turns
+    // rigidly with the reticle.
+    gunBarrelRestQuat.setFromUnitVectors(gunBarrelAimAxis, V3(0, 0, -1));
   }
   gun.visible = false; if (gunBarrel) gunBarrel.visible = false;
   tick();
@@ -1244,7 +1252,7 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
-const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelTargetDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
+const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
 function updateGunFlight(dt) {
@@ -1269,8 +1277,12 @@ function updateGunCamera(dt) {
   // ONLY the barrel swivels inside the fixed frame. Its measured mesh axis is
   // aligned to the exact same local direction as the reticle.
   if (gunBarrel) {
-    _barrelTargetDir.set(0, 0, -1).applyQuaternion(_coneQ).normalize();
-    _barrelAimQ.setFromUnitVectors(gunBarrelAimAxis, _barrelTargetDir);
+    // Apply the SAME cone rotation the camera/reticle uses (coneQ), composed onto
+    // the barrel's fixed rest orientation. This is a rigid rotation about the
+    // pivot, so the model's ring sight stays locked on the reticle at every
+    // yaw/pitch — unlike a minimal axis-to-axis rotation, which skews off-axis
+    // features (the ring) the further you aim, horizontally and vertically.
+    _barrelAimQ.copy(_coneQ).multiply(gunBarrelRestQuat);
     gunBarrel.quaternion.copy(_barrelAimQ);
   }
   gun.updateWorldMatrix(true, true);

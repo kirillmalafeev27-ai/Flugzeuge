@@ -1,0 +1,13 @@
+{
+  "name": "deutsch-abc",
+  "version": "1.0.0",
+  "description": "Deutsch ABC — vocabulary sorting game for kids",
+  "private": true,
+  "scripts": {
+    "build": "echo \"No build step needed for static site\"",
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

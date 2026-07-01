@@ -1177,6 +1177,16 @@ function cinematicLoss(kind, msg) {
 /* ============================ SHOOTING ============================ */
 const ray = new T.Raycaster();
 let firing = false, cooldown = 0; const FIRE_DT = 0.08;
+// Zoom / aim-down-sights (hold RMB): narrows the view so distant fighters are
+// easier to place the crosshair on, and steadies the aim.
+let zooming = false; const FOV_BASE = 60, FOV_ZOOM = 30;
+function updateZoom(dt) {
+  const want = (G.running && !G.over && G.mode === 'gun' && zooming && !G.quizActive) ? FOV_ZOOM : FOV_BASE;
+  if (Math.abs(camera.fov - want) > 0.03) {
+    camera.fov += (want - camera.fov) * Math.min(1, 12 * dt);
+    camera.updateProjectionMatrix();
+  }
+}
 let recoil = 0;
 function fire() {
   if (G.ammo <= 0) { return; }
@@ -1245,29 +1255,33 @@ if (location.search.includes('debug')) {
   window.__fire = () => fire();
   window.__aim = () => ({yaw:+G.yaw.toFixed(3), pitch:+G.pitch.toFixed(3), locked: typeof pointerLocked!=="undefined"?pointerLocked:null});
 }
-addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { firing = false; zooming = false; for (const k in keys) keys[k] = false; });
 
 // Pointer-lock aiming: click (LMB) on the scene hides the cursor and aims the gun
 // with relative mouse movement (no edge-clamping, so it never "sticks"); Escape
 // releases the cursor again so you can use the HUD buttons.
 let pointerLocked = false;
 const _canvas = renderer.domElement;
-_canvas.addEventListener('pointerdown', () => {
+_canvas.addEventListener('contextmenu', e => e.preventDefault()); // RMB = zoom, not menu
+_canvas.addEventListener('pointerdown', (e) => {
   resumeAudio();                                        // first gesture unlocks audio
   if (!G.running || G.mode !== 'gun' || G.quizActive) return;
   if (!pointerLocked) { _canvas.requestPointerLock(); } // first click: grab the cursor
-  firing = true;                                        // and start firing
+  if (e.button === 2) zooming = true;                   // RMB: aim down sights
+  else firing = true;                                   // LMB: fire
 });
-addEventListener('pointerup', () => { firing = false; });
+addEventListener('pointerup', (e) => { if (e.button === 2) zooming = false; else firing = false; });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === _canvas;
-  if (!pointerLocked) firing = false; // Escape released the cursor — stop shooting
+  if (!pointerLocked) { firing = false; zooming = false; } // Escape released the cursor
 });
 addEventListener('mousemove', e => {
   if (G.mode === 'gun' && pointerLocked && !G.quizActive) {
     const cone = aimCone();
-    G.yaw = clamp(G.yaw - e.movementX * CFG.AIM_SENS, -cone, cone);
-    G.pitch = clamp(G.pitch - e.movementY * CFG.AIM_SENS, -cone, cone);
+    // steadier aim while zoomed: scale sensitivity with the zoom factor
+    const sens = CFG.AIM_SENS * (zooming ? FOV_ZOOM / FOV_BASE : 1);
+    G.yaw = clamp(G.yaw - e.movementX * sens, -cone, cone);
+    G.pitch = clamp(G.pitch - e.movementY * sens, -cone, cone);
   }
 });
 
@@ -1315,7 +1329,7 @@ function toggleMode() {
   ui.modeDot.style.boxShadow = '0 0 12px 2px ' + (gunMode ? 'var(--accent)' : 'var(--sky)');
   ui.reticle.classList.toggle('show', gunMode);
   ui.hint.innerHTML = gunMode
-    ? '<kbd>ЛКМ</kbd> навести и огонь · <kbd>мышь</kbd> наводка ±45° · <kbd>Esc</kbd> вернуть курсор · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> полёт'
+    ? '<kbd>ЛКМ</kbd> огонь · <kbd>ПКМ</kbd> зум · <kbd>мышь</kbd> наводка · <kbd>Esc</kbd> курсор · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> полёт'
     : '<kbd>W/S</kbd> тангаж · <kbd>A/D</kbd> крен · <kbd>Q/E</kbd> рыскание · <kbd>Shift/Ctrl</kbd> газ · <kbd>TAB</kbd> к пулемёту';
   renderer.domElement.style.cursor = 'default'; // pointer-lock hides it while aiming
   if (!gunMode && pointerLocked) document.exitPointerLock();
@@ -1586,6 +1600,7 @@ function frame() {
 
   muzzleLightI *= Math.pow(.0001, dt); muzzleLight.intensity = muzzleLightI;
   updateTracers(dt); updateDebris(dt); updateParticles(dt);
+  updateZoom(dt);
   updateAudio(dt);
   shake *= Math.pow(.02, dt);
 

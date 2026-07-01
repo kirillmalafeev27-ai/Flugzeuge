@@ -38,7 +38,8 @@ const CFG = {
   GUN:     { size: 1.5,  rot: [0, 0, 0] },                              // barrel -Z
   PROP_RPS: 22,            // propeller revolutions / second (~realistic WW1 idle/cruise)
   ROUND_TIME: 120,         // seconds to survive
-  AIM_CONE: Math.PI / 4,   // ±45°
+  AIM_CONE: Math.PI / 4,        // ±45° in standard mode
+  AIM_CONE_EASY: Math.PI * 0.75, // ±135° in simplified mode (much wider field of fire)
   AIM_SENS: 0.0042,        // gun mouse sensitivity (higher = turns faster)
   AMMO_START: 60, AMMO_RELOAD: 30, AMMO_MAX: 240,
   SHIP_HP: 100, PLAYER_HP: 100, ENEMY_HP: 100,
@@ -1264,8 +1265,9 @@ document.addEventListener('pointerlockchange', () => {
 });
 addEventListener('mousemove', e => {
   if (G.mode === 'gun' && pointerLocked && !G.quizActive) {
-    G.yaw = clamp(G.yaw - e.movementX * CFG.AIM_SENS, -CFG.AIM_CONE, CFG.AIM_CONE);
-    G.pitch = clamp(G.pitch - e.movementY * CFG.AIM_SENS, -CFG.AIM_CONE, CFG.AIM_CONE);
+    const cone = aimCone();
+    G.yaw = clamp(G.yaw - e.movementX * CFG.AIM_SENS, -cone, cone);
+    G.pitch = clamp(G.pitch - e.movementY * CFG.AIM_SENS, -cone, cone);
   }
 });
 
@@ -1352,6 +1354,9 @@ const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quat
 const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
+// Max deflection of the gun from the plane's nose: ±45° in standard, ±135° in
+// simplified mode (a much wider field of fire).
+function aimCone() { return G.easyMode ? CFG.AIM_CONE_EASY : CFG.AIM_CONE; }
 function updateGunFlight(dt) {
   const obj = player;
   player._roll = 0; // keep level — no banking, no inversion

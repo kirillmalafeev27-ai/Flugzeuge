@@ -1265,6 +1265,7 @@ const _canvas = renderer.domElement;
 _canvas.addEventListener('contextmenu', e => e.preventDefault()); // RMB = zoom, not menu
 _canvas.addEventListener('pointerdown', (e) => {
   resumeAudio();                                        // first gesture unlocks audio
+  if (e.pointerType === 'touch') return;                // touch is handled by initTouch()
   if (!G.running || G.mode !== 'gun' || G.quizActive) return;
   if (!pointerLocked) { _canvas.requestPointerLock(); } // first click: grab the cursor
   if (e.button === 2) zooming = true;                   // RMB: aim down sights
@@ -1284,6 +1285,83 @@ addEventListener('mousemove', e => {
     G.pitch = clamp(G.pitch - e.movementY * sens, -cone, cone);
   }
 });
+
+/* ============================ TOUCH (mobile) ===================== */
+// Phones/tablets can't pointer-lock or use a keyboard, so drive the same state
+// (firing / zooming / aim / flight axes) from on-screen controls instead.
+const IS_TOUCH = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
+  || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const touchAxes = { pitch: 0, roll: 0, throttle: 0 };
+function initTouch() {
+  if (!IS_TOUCH) return;
+  document.body.classList.add('touch');
+  const fireBtn = $('fireBtn'), zoomBtn = $('zoomBtn'), pad = $('flightPad');
+  const knob = pad && pad.querySelector('.knob');
+  const thUp = $('throttleUp'), thDown = $('throttleDown');
+  const hold = (el, on, off) => {
+    if (!el) return;
+    el.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); on(); }, { passive: false });
+    const end = e => { e.preventDefault(); off(); };
+    el.addEventListener('touchend', end, { passive: false });
+    el.addEventListener('touchcancel', end, { passive: false });
+  };
+  hold(fireBtn, () => { firing = true; }, () => { firing = false; });
+  hold(thUp, () => { touchAxes.throttle = 1; }, () => { touchAxes.throttle = 0; });
+  hold(thDown, () => { touchAxes.throttle = -1; }, () => { touchAxes.throttle = 0; });
+  // Zoom is a toggle so aiming + firing + zoom don't need a third finger.
+  zoomBtn && zoomBtn.addEventListener('touchstart', e => {
+    e.preventDefault(); resumeAudio(); zooming = !zooming; zoomBtn.classList.toggle('on', zooming);
+  }, { passive: false });
+
+  // Left thumbstick: pitch (vertical) + roll (horizontal) for flight.
+  if (pad && knob) {
+    let padId = null;
+    const setFromTouch = t => {
+      const r = pad.getBoundingClientRect();
+      let dx = (t.clientX - (r.left + r.width / 2)) / (r.width / 2);
+      let dy = (t.clientY - (r.top + r.height / 2)) / (r.height / 2);
+      const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+      touchAxes.roll = dx; touchAxes.pitch = -dy;
+      knob.style.transform = `translate(${dx * r.width * 0.3}px, ${dy * r.height * 0.3}px)`;
+    };
+    const reset = () => { padId = null; touchAxes.roll = 0; touchAxes.pitch = 0; knob.style.transform = 'translate(0,0)'; };
+    pad.addEventListener('touchstart', e => { e.preventDefault(); const t = e.changedTouches[0]; padId = t.identifier; setFromTouch(t); }, { passive: false });
+    pad.addEventListener('touchmove', e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === padId) setFromTouch(t); }, { passive: false });
+    pad.addEventListener('touchend', e => { for (const t of e.changedTouches) if (t.identifier === padId) reset(); }, { passive: false });
+    pad.addEventListener('touchcancel', reset, { passive: false });
+  }
+
+  // Drag anywhere on the scene to aim the gun.
+  let aimId = null, aimX = 0, aimY = 0;
+  const AIM_SENS_TOUCH = 0.0040;
+  _canvas.addEventListener('touchstart', e => {
+    if (aimId !== null || G.mode !== 'gun' || !G.running || G.quizActive) return;
+    const t = e.changedTouches[0]; aimId = t.identifier; aimX = t.clientX; aimY = t.clientY;
+  }, { passive: true });
+  _canvas.addEventListener('touchmove', e => {
+    if (aimId === null || G.mode !== 'gun') return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== aimId) continue;
+      const cone = aimCone();
+      const sens = AIM_SENS_TOUCH * (zooming ? FOV_ZOOM / FOV_BASE : 1);
+      G.yaw = clamp(G.yaw - (t.clientX - aimX) * sens, -cone, cone);
+      G.pitch = clamp(G.pitch - (t.clientY - aimY) * sens, -cone, cone);
+      aimX = t.clientX; aimY = t.clientY;
+      e.preventDefault();
+    }
+  }, { passive: false });
+  const aimEnd = e => { for (const t of e.changedTouches) if (t.identifier === aimId) aimId = null; };
+  _canvas.addEventListener('touchend', aimEnd, { passive: true });
+  _canvas.addEventListener('touchcancel', aimEnd, { passive: true });
+}
+initTouch();
+// Keep the body flags in sync so the CSS shows the right touch controls.
+function setBodyState() {
+  const b = document.body.classList;
+  b.toggle('playing', G.running && !G.over);
+  b.toggle('mode-gun', G.mode === 'gun');
+  b.toggle('mode-flight', G.mode === 'flight');
+}
 
 ui.modeBtn.onclick = requestToggleMode;
 ui.reloadBtn.onclick = requestReload;
@@ -1437,9 +1515,9 @@ function resolvePlayerCollisions() {
   }
 }
 function updateFlight(dt) {
-  // controls
-  const pitchIn = ((keys.KeyW || keys.ArrowUp) ? 1 : 0) - ((keys.KeyS || keys.ArrowDown) ? 1 : 0);
-  const rollIn = ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft) ? 1 : 0);
+  // controls — keyboard and the on-screen thumbstick share the same axes
+  const pitchIn = clamp((((keys.KeyW || keys.ArrowUp) ? 1 : 0) - ((keys.KeyS || keys.ArrowDown) ? 1 : 0)) + touchAxes.pitch, -1, 1);
+  const rollIn = clamp((((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft) ? 1 : 0)) + touchAxes.roll, -1, 1);
   const yawIn = ((keys.KeyE || keys.ArrowRight) ? 1 : 0) - ((keys.KeyQ || keys.ArrowLeft) ? 1 : 0);
   const maneuver = Math.min(1, (Math.abs(pitchIn) + Math.abs(rollIn) + Math.abs(yawIn)) / 2);
   G.evasion = clamp(G.evasion + maneuver * dt * 1.5 - (maneuver ? 0 : dt * 0.75), 0, 1);
@@ -1449,7 +1527,7 @@ function updateFlight(dt) {
   flight.roll = lerp(flight.roll, -rollIn * 0.66, clamp(4.5 * dt, 0, 1));
   flight.yaw -= (yawIn * 1.05 + rollIn * 0.68) * dt; // right key turns right, left key turns left
   flight.pitch = clamp(flight.pitch, -1.1, 1.1);
-  const throttle = (keys.ShiftLeft || keys.ShiftRight ? 1 : 0) - (keys.ControlLeft || keys.ControlRight ? 1 : 0);
+  const throttle = clamp((keys.ShiftLeft || keys.ShiftRight ? 1 : 0) - (keys.ControlLeft || keys.ControlRight ? 1 : 0) + touchAxes.throttle, -1, 1);
   flight.speed = clamp(flight.speed + throttle * 8 * dt, 4.5, 27);
 
   const q = new T.Quaternion().setFromEuler(new T.Euler(flight.pitch, flight.yaw, flight.roll, 'YXZ'));
@@ -1602,6 +1680,7 @@ function frame() {
   updateTracers(dt); updateDebris(dt); updateParticles(dt);
   updateZoom(dt);
   updateAudio(dt);
+  setBodyState();
   shake *= Math.pow(.02, dt);
 
   renderer.render(scene, camera);

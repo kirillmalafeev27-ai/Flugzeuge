@@ -203,7 +203,36 @@
   @media (max-width:640px){
     .panel{width:200px}#clock{font-size:24px}.hint{display:none}
     .start-config,.learning-controls,.action-quiz-options{grid-template-columns:1fr}
+    .overlay h1{font-size:30px}.overlay{padding:20px}
   }
+
+  /* ---- touch / mobile controls ---- */
+  canvas{touch-action:none}
+  #touchControls{position:fixed;inset:0;z-index:12;pointer-events:none}
+  .tctl{position:fixed;display:none;align-items:center;justify-content:center;border-radius:50%;
+    background:rgba(20,26,40,.5);border:1px solid var(--line);color:#fff;
+    font:700 12px/1 var(--mono);letter-spacing:.03em;text-align:center;
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+    touch-action:none;pointer-events:auto;user-select:none;-webkit-user-select:none;
+    -webkit-tap-highlight-color:transparent}
+  .tctl:active{filter:brightness(1.3)}
+  #fireBtn{right:26px;bottom:34px;width:104px;height:104px;font-size:14px;
+    background:rgba(255,90,60,.28);border-color:rgba(255,90,60,.6);color:#ffd9d0}
+  #zoomBtn{right:152px;bottom:56px;width:66px;height:66px}
+  #zoomBtn.on{background:rgba(111,183,255,.4);border-color:rgba(111,183,255,.75);color:#e6f2ff}
+  #flightPad{left:28px;bottom:30px;width:132px;height:132px;background:rgba(20,26,40,.4)}
+  #flightPad .knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;
+    border-radius:50%;background:rgba(111,183,255,.5);border:1px solid rgba(255,255,255,.45)}
+  #throttleUp{right:38px;bottom:170px;width:62px;height:62px}
+  #throttleDown{right:38px;bottom:96px;width:62px;height:62px}
+  body.touch.playing.mode-gun #fireBtn,
+  body.touch.playing.mode-gun #zoomBtn{display:flex}
+  body.touch.playing.mode-flight #flightPad,
+  body.touch.playing.mode-flight #throttleUp,
+  body.touch.playing.mode-flight #throttleDown{display:flex}
+  body.touch .dock{right:50%;transform:translateX(50%);flex-direction:row;align-items:center;gap:8px}
+  body.touch button.act{min-height:48px;font-size:14px}
+  body.touch button.act .k{display:none}
 </style>
 </head>
 <body>
@@ -236,6 +265,15 @@
 </div>
 
 <div class="hint" id="hint"></div>
+
+<!-- on-screen controls for touch devices (shown only on phones/tablets) -->
+<div id="touchControls" aria-hidden="true">
+  <div id="flightPad" class="tctl"><span class="knob"></span></div>
+  <button id="throttleUp" class="tctl" type="button">ГАЗ ▲</button>
+  <button id="throttleDown" class="tctl" type="button">ГАЗ ▼</button>
+  <button id="zoomBtn" class="tctl" type="button">ЗУМ</button>
+  <button id="fireBtn" class="tctl" type="button">ОГОНЬ</button>
+</div>
 
 <!-- gun reticle / hitmarker / damage -->
 <div id="reticle"><span class="r"></span><span class="c"></span>

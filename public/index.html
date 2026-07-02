@@ -233,6 +233,24 @@
   body.touch .dock{right:50%;transform:translateX(50%);flex-direction:row;align-items:center;gap:8px}
   body.touch button.act{min-height:48px;font-size:14px}
   body.touch button.act .k{display:none}
+
+  /* ---- gun-sight sandbox (live sliders) ---- */
+  #sandbox{position:fixed;top:16px;right:16px;z-index:40;width:236px;padding:10px 12px;
+    background:rgba(10,14,22,.82);border:1px solid var(--line);border-radius:12px;color:var(--ink);
+    -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  #sandbox .sb-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;
+    font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  #sandbox .sb-head button{width:24px;height:24px;line-height:1;background:rgba(255,255,255,.06);
+    border:1px solid var(--line);border-radius:6px;color:var(--ink);cursor:pointer}
+  #sandbox .sb-row{display:grid;grid-template-columns:66px 1fr 44px;align-items:center;gap:8px;margin:7px 0}
+  #sandbox .sb-row span{color:var(--muted);font-size:11px}
+  #sandbox .sb-row input[type=range]{width:100%;accent-color:var(--accent)}
+  #sandbox .sb-row b{font-family:var(--mono);font-size:11px;text-align:right;color:var(--ink)}
+  #sandbox .sb-btns{display:flex;gap:8px;margin-top:10px}
+  #sandbox .sb-btns button{flex:1;padding:6px;background:rgba(255,255,255,.06);border:1px solid var(--line);
+    border-radius:8px;color:var(--ink);cursor:pointer;font-size:12px}
+  #sandbox .sb-btns button:hover{background:rgba(255,255,255,.12)}
+  #sandbox #sbBody.hidden{display:none}
 </style>
 </head>
 <body>

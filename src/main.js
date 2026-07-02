@@ -1183,7 +1183,9 @@ const FOV_BASE = 77.32;                       // gun-view base FOV (wide cockpit
 const ZOOM_FOVS = [77.32, 52, 36, 24, 15];    // successive magnification steps
 let zoomLevel = 0;
 function updateZoom(dt) {
-  const want = (G.running && !G.over && G.mode === 'gun' && !G.quizActive) ? ZOOM_FOVS[zoomLevel] : FOV_BASE;
+  const gunView = G.running && !G.over && G.mode === 'gun' && !G.quizActive;
+  // zoom level 0 uses the live sandbox FOV; deeper steps use the fixed ladder
+  const want = gunView ? (zoomLevel === 0 ? TUNE.fov : ZOOM_FOVS[zoomLevel]) : TUNE.fov;
   if (Math.abs(camera.fov - want) > 0.03) {
     camera.fov += (want - camera.fov) * Math.min(1, 12 * dt);
     camera.updateProjectionMatrix();
@@ -1453,6 +1455,7 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
 const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
+const _vUp = new T.Vector3(), _vRight = new T.Vector3();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
 // Max deflection of the gun from the plane's nose: ±45° in standard, ±135° in
@@ -1472,13 +1475,57 @@ function updateGunFlight(dt) {
 // ring sight tracks the reticle). The camera sits behind the barrel pivot but a
 // touch LOWER and looks a touch UP, which drops the far front post (мушка) into
 // the centre of the near ring sight so both line up on the HUD reticle.
-const GUN_EYE_BACK = 1.05;   // eye distance behind the barrel pivot
-const GUN_EYE_DROP = 0.16;   // sit lower → front post settles into the ring
-const GUN_LOOK_UP = 0.05;    // ...then look up (~3°) to re-centre the sight picture
+// Live-tunable gun-view params (driven by the on-screen sandbox sliders).
+const TUNE_KEY = 'zeppelin-defense.gun-tune.v1';
+const TUNE_DEFAULTS = { fov: 77.32, eyeBack: 1.05, eyeDrop: 0.16, eyeSide: 0, lookUp: 0.05, lookSide: 0 };
+const TUNE = { ...TUNE_DEFAULTS };
+try { Object.assign(TUNE, JSON.parse(localStorage.getItem(TUNE_KEY) || '{}')); } catch (_) {}
+function saveTune() { try { localStorage.setItem(TUNE_KEY, JSON.stringify(TUNE)); } catch (_) {} }
+// On-screen sandbox: live sliders for the gun-view params. Press Esc to free
+// the cursor, drag the sliders, click into the scene to aim again.
+function initSandbox() {
+  if (document.getElementById('sandbox')) return;
+  const fields = [
+    ['fov', 'FOV', 40, 110, 0.5],
+    ['eyeBack', 'Глаз назад', 0, 3, 0.01],
+    ['eyeDrop', 'Глаз ниже', -1, 1, 0.005],
+    ['eyeSide', 'Глаз вбок', -1, 1, 0.005],
+    ['lookUp', 'Взгляд ↑', -0.5, 0.5, 0.005],
+    ['lookSide', 'Взгляд →', -0.5, 0.5, 0.005],
+  ];
+  const wrap = document.createElement('div');
+  wrap.id = 'sandbox';
+  wrap.innerHTML = '<div class="sb-head">Прицел ⚙<button id="sbToggle" type="button">–</button></div><div id="sbBody"></div>';
+  document.body.appendChild(wrap);
+  const body = wrap.querySelector('#sbBody');
+  const inputs = {};
+  for (const [key, label, min, max, step] of fields) {
+    const row = document.createElement('label');
+    row.className = 'sb-row';
+    row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}"><b></b>`;
+    const input = row.querySelector('input'), val = row.querySelector('b');
+    input.value = TUNE[key]; val.textContent = (+TUNE[key]).toFixed(3);
+    input.addEventListener('input', () => { TUNE[key] = parseFloat(input.value); val.textContent = TUNE[key].toFixed(3); saveTune(); });
+    body.appendChild(row); inputs[key] = input;
+  }
+  const btns = document.createElement('div');
+  btns.className = 'sb-btns';
+  btns.innerHTML = '<button id="sbCopy" type="button">Копировать</button><button id="sbReset" type="button">Сброс</button>';
+  body.appendChild(btns);
+  const refresh = () => { for (const k in inputs) { inputs[k].value = TUNE[k]; inputs[k].nextElementSibling.textContent = (+TUNE[k]).toFixed(3); } };
+  btns.querySelector('#sbCopy').onclick = () => {
+    const s = Object.keys(TUNE_DEFAULTS).map(k => `${k}: ${TUNE[k]}`).join(', ');
+    navigator.clipboard?.writeText(s);
+    const b = btns.querySelector('#sbCopy'); b.textContent = 'Скопировано'; setTimeout(() => b.textContent = 'Копировать', 1000);
+  };
+  btns.querySelector('#sbReset').onclick = () => { Object.assign(TUNE, TUNE_DEFAULTS); saveTune(); refresh(); };
+  wrap.querySelector('#sbToggle').onclick = () => { const b = wrap.querySelector('#sbToggle'); const hidden = body.classList.toggle('hidden'); b.textContent = hidden ? '+' : '–'; };
+}
+initSandbox();
 function updateGunCamera(dt) {
   const base = player.quaternion;
-  _coneE.set(G.pitch + GUN_LOOK_UP, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
-  _aimQ.copy(base).multiply(_coneQ);                 // view/aim = nose heading + cone (+ look-up)
+  _coneE.set(G.pitch + TUNE.lookUp, G.yaw + TUNE.lookSide, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
+  _aimQ.copy(base).multiply(_coneQ);                 // view/aim = nose heading + cone (+ look bias)
 
   // frame/ring: bolted to the plane in front of the cockpit — static, never turns
   gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
@@ -1493,9 +1540,13 @@ function updateGunCamera(dt) {
 
   camera.quaternion.copy(_aimQ);
   _aimDir.set(0, 0, -1).applyQuaternion(_aimQ);
-  if (gunBarrel) _camRig.copy(gunBarrel.getWorldPosition(_gunEye)).addScaledVector(_aimDir, -GUN_EYE_BACK);
+  _vUp.set(0, 1, 0).applyQuaternion(_aimQ);
+  _vRight.set(1, 0, 0).applyQuaternion(_aimQ);
+  if (gunBarrel) _camRig.copy(gunBarrel.getWorldPosition(_gunEye));
   else _camRig.copy(player.position).add(V3(0, 0.75, -0.25).applyQuaternion(base));
-  _camRig.y -= GUN_EYE_DROP;                          // sit lower
+  _camRig.addScaledVector(_aimDir, -TUNE.eyeBack)    // behind the barrel pivot
+         .addScaledVector(_vUp, -TUNE.eyeDrop)       // lower
+         .addScaledVector(_vRight, TUNE.eyeSide);    // sideways
   camera.position.lerp(_camRig, Math.min(1, 20 * dt));
   camera.position.x += (Math.random() - .5) * shake * .18;
   camera.position.y += (Math.random() - .5) * shake * .18;

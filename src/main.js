@@ -1455,7 +1455,7 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
 const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
-const _vUp = new T.Vector3(), _vRight = new T.Vector3();
+const _vUp = new T.Vector3(), _vRight = new T.Vector3(), _lookE = new T.Euler(), _lookQ = new T.Quaternion();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
 // Max deflection of the gun from the plane's nose: ±45° in standard, ±135° in
@@ -1486,12 +1486,12 @@ function saveTune() { try { localStorage.setItem(TUNE_KEY, JSON.stringify(TUNE))
 function initSandbox() {
   if (document.getElementById('sandbox')) return;
   const fields = [
-    ['fov', 'FOV', 40, 110, 0.5],
-    ['eyeBack', 'Глаз назад', 0, 3, 0.01],
-    ['eyeDrop', 'Глаз ниже', -1, 1, 0.005],
-    ['eyeSide', 'Глаз вбок', -1, 1, 0.005],
-    ['lookUp', 'Взгляд ↑', -0.5, 0.5, 0.005],
-    ['lookSide', 'Взгляд →', -0.5, 0.5, 0.005],
+    ['fov', 'FOV', 20, 150, 0.5],
+    ['eyeBack', 'Глаз назад', -4, 10, 0.02],
+    ['eyeDrop', 'Глаз ниже', -4, 4, 0.01],
+    ['eyeSide', 'Глаз вбок', -4, 4, 0.01],
+    ['lookUp', 'Взгляд ↑', -1.5, 1.5, 0.01],
+    ['lookSide', 'Взгляд →', -1.5, 1.5, 0.01],
   ];
   const wrap = document.createElement('div');
   wrap.id = 'sandbox';
@@ -1524,14 +1524,17 @@ function initSandbox() {
 initSandbox();
 function updateGunCamera(dt) {
   const base = player.quaternion;
-  _coneE.set(G.pitch + TUNE.lookUp, G.yaw + TUNE.lookSide, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
-  _aimQ.copy(base).multiply(_coneQ);                 // view/aim = nose heading + cone (+ look bias)
+  // aim cone drives the GUN (and where bullets go); no look bias here so that
+  // the "look up/side" sliders tilt only the view, never the gun.
+  _coneE.set(G.pitch, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
+  // the camera adds a fixed look bias on top — pure framing, the gun stays put.
+  _lookE.set(TUNE.lookUp, TUNE.lookSide, 0, 'YXZ'); _lookQ.setFromEuler(_lookE);
+  _aimQ.copy(base).multiply(_coneQ).multiply(_lookQ);
 
   // frame/ring: bolted to the plane in front of the cockpit — static, never turns
   gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
   gun.quaternion.copy(base);
-  // barrel mesh: swivels rigidly with the same cone the view uses, so its ring
-  // sight stays locked on the reticle
+  // barrel mesh: swivels rigidly with the aim cone (NOT the look bias)
   if (gunBarrel) {
     _barrelAimQ.copy(_coneQ).multiply(gunBarrelRestQuat);
     gunBarrel.quaternion.copy(_barrelAimQ);

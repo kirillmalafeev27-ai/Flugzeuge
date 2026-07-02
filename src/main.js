@@ -39,13 +39,13 @@ const CFG = {
   PROP_RPS: 22,            // propeller revolutions / second (~realistic WW1 idle/cruise)
   ROUND_TIME: 120,         // seconds to survive
   AIM_CONE: Math.PI / 4,        // ±45° in standard mode
-  AIM_CONE_EASY: Math.PI * 0.75, // ±135° in simplified mode (much wider field of fire)
+  AIM_CONE_EASY: Math.PI / 2,    // ±90° in simplified mode (wider field of fire)
   AIM_SENS: 0.0042,        // gun mouse sensitivity (higher = turns faster)
   AMMO_START: 60, AMMO_RELOAD: 30, AMMO_MAX: 240,
   SHIP_HP: 100, PLAYER_HP: 100, ENEMY_HP: 100,
   FLOOR: -22,
   // --- balance ---
-  ENEMY_SPEED: [5.8, 8.2],
+  ENEMY_SPEED: [3.8, 5.4],  // slower fighters (~-35%)
   MAX_PURSUERS: 2,         // at most this many may peel off to chase you
   MAX_ENEMIES_BASE: 6,     // how many fighters in the sky early on
   MAX_ENEMIES_CAP: 12,     // hard cap as the wave ramps
@@ -663,10 +663,10 @@ let gunBarrelAimAxis = V3(0, 0, -1);
 const gunBarrelRestQuat = new T.Quaternion();
 let enemyTpl = null;       // template gltf scene for cloning
 const enemies = [];
-const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 11.5 };
+const flight = { pos: V3(0, 6, 16), yaw: Math.PI, pitch: 0, roll: 0, speed: 8 };
 // In gun mode the plane keeps flying (auto-patrol around the airship); you can't
 // steer it, only aim the gun within a ±45° cone of its nose.
-const GUN_CRUISE = 6.8;
+const GUN_CRUISE = 4.6;
 let shake = 0;
 
 function escapeHtml(value) {
@@ -1177,11 +1177,13 @@ function cinematicLoss(kind, msg) {
 /* ============================ SHOOTING ============================ */
 const ray = new T.Raycaster();
 let firing = false, cooldown = 0; const FIRE_DT = 0.08;
-// Zoom / aim-down-sights (hold RMB): narrows the view so distant fighters are
-// easier to place the crosshair on, and steadies the aim.
-let zooming = false; const FOV_BASE = 60, FOV_ZOOM = 30;
+// Zoom via the mouse wheel, in discrete steps like World of Tanks sniper mode:
+// scroll up to magnify further, scroll down to pull back. Level 0 = no zoom.
+const FOV_BASE = 60;
+const ZOOM_FOVS = [60, 42, 30, 20, 13];   // successive magnification steps
+let zoomLevel = 0;
 function updateZoom(dt) {
-  const want = (G.running && !G.over && G.mode === 'gun' && zooming && !G.quizActive) ? FOV_ZOOM : FOV_BASE;
+  const want = (G.running && !G.over && G.mode === 'gun' && !G.quizActive) ? ZOOM_FOVS[zoomLevel] : FOV_BASE;
   if (Math.abs(camera.fov - want) > 0.03) {
     camera.fov += (want - camera.fov) * Math.min(1, 12 * dt);
     camera.updateProjectionMatrix();
@@ -1255,32 +1257,36 @@ if (location.search.includes('debug')) {
   window.__fire = () => fire();
   window.__aim = () => ({yaw:+G.yaw.toFixed(3), pitch:+G.pitch.toFixed(3), locked: typeof pointerLocked!=="undefined"?pointerLocked:null});
 }
-addEventListener('blur', () => { firing = false; zooming = false; for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { firing = false; for (const k in keys) keys[k] = false; });
 
 // Pointer-lock aiming: click (LMB) on the scene hides the cursor and aims the gun
 // with relative mouse movement (no edge-clamping, so it never "sticks"); Escape
 // releases the cursor again so you can use the HUD buttons.
 let pointerLocked = false;
 const _canvas = renderer.domElement;
-_canvas.addEventListener('contextmenu', e => e.preventDefault()); // RMB = zoom, not menu
 _canvas.addEventListener('pointerdown', (e) => {
   resumeAudio();                                        // first gesture unlocks audio
   if (e.pointerType === 'touch') return;                // touch is handled by initTouch()
   if (!G.running || G.mode !== 'gun' || G.quizActive) return;
   if (!pointerLocked) { _canvas.requestPointerLock(); } // first click: grab the cursor
-  if (e.button === 2) zooming = true;                   // RMB: aim down sights
-  else firing = true;                                   // LMB: fire
+  if (e.button === 0) firing = true;                    // LMB: fire
 });
-addEventListener('pointerup', (e) => { if (e.button === 2) zooming = false; else firing = false; });
+addEventListener('pointerup', (e) => { if (e.button === 0) firing = false; });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === _canvas;
-  if (!pointerLocked) { firing = false; zooming = false; } // Escape released the cursor
+  if (!pointerLocked) firing = false; // Escape released the cursor
 });
+// Mouse wheel steps the zoom in/out (WoT-style); only in gun mode.
+addEventListener('wheel', e => {
+  if (G.mode !== 'gun' || !G.running || G.over) return;
+  e.preventDefault();
+  zoomLevel = clamp(zoomLevel + (e.deltaY < 0 ? 1 : -1), 0, ZOOM_FOVS.length - 1);
+}, { passive: false });
 addEventListener('mousemove', e => {
   if (G.mode === 'gun' && pointerLocked && !G.quizActive) {
     const cone = aimCone();
-    // steadier aim while zoomed: scale sensitivity with the zoom factor
-    const sens = CFG.AIM_SENS * (zooming ? FOV_ZOOM / FOV_BASE : 1);
+    // steadier aim the more you're zoomed in (sensitivity tracks the live FOV)
+    const sens = CFG.AIM_SENS * (camera.fov / FOV_BASE);
     G.yaw = clamp(G.yaw - e.movementX * sens, -cone, cone);
     G.pitch = clamp(G.pitch - e.movementY * sens, -cone, cone);
   }
@@ -1288,7 +1294,7 @@ addEventListener('mousemove', e => {
 
 /* ============================ TOUCH (mobile) ===================== */
 // Phones/tablets can't pointer-lock or use a keyboard, so drive the same state
-// (firing / zooming / aim / flight axes) from on-screen controls instead.
+// (firing / zoom level / aim / flight axes) from on-screen controls instead.
 const IS_TOUCH = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
   || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const touchAxes = { pitch: 0, roll: 0, throttle: 0 };
@@ -1308,9 +1314,12 @@ function initTouch() {
   hold(fireBtn, () => { firing = true; }, () => { firing = false; });
   hold(thUp, () => { touchAxes.throttle = 1; }, () => { touchAxes.throttle = 0; });
   hold(thDown, () => { touchAxes.throttle = -1; }, () => { touchAxes.throttle = 0; });
-  // Zoom is a toggle so aiming + firing + zoom don't need a third finger.
+  // Zoom button steps through the same magnification levels as the wheel,
+  // wrapping back to no-zoom after the deepest step.
   zoomBtn && zoomBtn.addEventListener('touchstart', e => {
-    e.preventDefault(); resumeAudio(); zooming = !zooming; zoomBtn.classList.toggle('on', zooming);
+    e.preventDefault(); resumeAudio();
+    zoomLevel = (zoomLevel + 1) % ZOOM_FOVS.length;
+    zoomBtn.classList.toggle('on', zoomLevel > 0);
   }, { passive: false });
 
   // Left thumbstick: pitch (vertical) + roll (horizontal) for flight.
@@ -1343,7 +1352,7 @@ function initTouch() {
     for (const t of e.changedTouches) {
       if (t.identifier !== aimId) continue;
       const cone = aimCone();
-      const sens = AIM_SENS_TOUCH * (zooming ? FOV_ZOOM / FOV_BASE : 1);
+      const sens = AIM_SENS_TOUCH * (camera.fov / FOV_BASE);
       G.yaw = clamp(G.yaw - (t.clientX - aimX) * sens, -cone, cone);
       G.pitch = clamp(G.pitch - (t.clientY - aimY) * sens, -cone, cone);
       aimX = t.clientX; aimY = t.clientY;
@@ -1407,7 +1416,7 @@ function toggleMode() {
   ui.modeDot.style.boxShadow = '0 0 12px 2px ' + (gunMode ? 'var(--accent)' : 'var(--sky)');
   ui.reticle.classList.toggle('show', gunMode);
   ui.hint.innerHTML = gunMode
-    ? '<kbd>ЛКМ</kbd> огонь · <kbd>ПКМ</kbd> зум · <kbd>мышь</kbd> наводка · <kbd>Esc</kbd> курсор · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> полёт'
+    ? '<kbd>ЛКМ</kbd> огонь · <kbd>колесо</kbd> зум · <kbd>мышь</kbd> наводка · <kbd>Esc</kbd> курсор · <kbd>R</kbd> перезарядка · <kbd>TAB</kbd> полёт'
     : '<kbd>W/S</kbd> тангаж · <kbd>A/D</kbd> крен · <kbd>Q/E</kbd> рыскание · <kbd>Shift/Ctrl</kbd> газ · <kbd>TAB</kbd> к пулемёту';
   renderer.domElement.style.cursor = 'default'; // pointer-lock hides it while aiming
   if (!gunMode && pointerLocked) document.exitPointerLock();
@@ -1528,7 +1537,7 @@ function updateFlight(dt) {
   flight.yaw -= (yawIn * 1.05 + rollIn * 0.68) * dt; // right key turns right, left key turns left
   flight.pitch = clamp(flight.pitch, -1.1, 1.1);
   const throttle = clamp((keys.ShiftLeft || keys.ShiftRight ? 1 : 0) - (keys.ControlLeft || keys.ControlRight ? 1 : 0) + touchAxes.throttle, -1, 1);
-  flight.speed = clamp(flight.speed + throttle * 8 * dt, 4.5, 27);
+  flight.speed = clamp(flight.speed + throttle * 8 * dt, 3.5, 18);
 
   const q = new T.Quaternion().setFromEuler(new T.Euler(flight.pitch, flight.yaw, flight.roll, 'YXZ'));
   const fwd = V3(0, 0, -1).applyQuaternion(q);
@@ -1655,7 +1664,7 @@ function frame() {
 
       // propeller spins faster in flight (with throttle), idles in gun mode
       if (propeller) {
-        const rps = CFG.PROP_RPS * (G.mode === 'flight' ? (0.6 + flight.speed / 27 * 0.8) : 0.55);
+        const rps = CFG.PROP_RPS * (G.mode === 'flight' ? (0.6 + flight.speed / 18 * 0.8) : 0.55);
         propeller.rotation.x += rps * Math.PI * 2 * dt;
       }
 

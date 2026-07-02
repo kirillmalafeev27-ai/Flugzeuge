@@ -1452,7 +1452,7 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 /* ============================ CAMERAS ============================ */
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
-const _gunEye = new T.Vector3();
+const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
 // Max deflection of the gun from the plane's nose: ±45° in standard, ±135° in
@@ -1467,46 +1467,38 @@ function updateGunFlight(dt) {
   resolvePlayerCollisions();
   G.evasion = Math.max(0, G.evasion - dt * 0.9);
 }
-// The gun is a first-person view-model welded to the camera: we measure its
-// pose RELATIVE to the camera once (from the neutral cockpit framing) and then
-// keep that fixed, so the gun never drifts across the screen as you aim — only
-// the camera (and thus the gun's WORLD position) moves as the plane flies.
-let gunRig = null;
-const _rigM = new T.Matrix4(), _rigP = new T.Vector3(), _rigQ = new T.Quaternion(), _rigS = new T.Vector3(), _rigInv = new T.Quaternion();
-function ensureGunRig() {
-  if (gunRig || !gun) return gunRig;
-  const base = player.quaternion.clone();
-  // reproduce the old neutral framing just to sample the camera↔gun relationship
+// Gun view. The white frame/ring is BOLTED TO THE PLANE — it never turns with
+// the aim. Only the barrel MESH swivels (rigidly, about the frame pivot, so its
+// ring sight tracks the reticle). The camera sits behind the barrel pivot but a
+// touch LOWER and looks a touch UP, which drops the far front post (мушка) into
+// the centre of the near ring sight so both line up on the HUD reticle.
+const GUN_EYE_BACK = 1.05;   // eye distance behind the barrel pivot
+const GUN_EYE_DROP = 0.16;   // sit lower → front post settles into the ring
+const GUN_LOOK_UP = 0.05;    // ...then look up (~3°) to re-centre the sight picture
+function updateGunCamera(dt) {
+  const base = player.quaternion;
+  _coneE.set(G.pitch + GUN_LOOK_UP, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
+  _aimQ.copy(base).multiply(_coneQ);                 // view/aim = nose heading + cone (+ look-up)
+
+  // frame/ring: bolted to the plane in front of the cockpit — static, never turns
   gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
   gun.quaternion.copy(base);
-  if (gunBarrel) gunBarrel.quaternion.copy(gunBarrelRestQuat);
+  // barrel mesh: swivels rigidly with the same cone the view uses, so its ring
+  // sight stays locked on the reticle
+  if (gunBarrel) {
+    _barrelAimQ.copy(_coneQ).multiply(gunBarrelRestQuat);
+    gunBarrel.quaternion.copy(_barrelAimQ);
+  }
   gun.updateWorldMatrix(true, true);
-  const fwd = V3(0, 0, -1).applyQuaternion(base);
-  const camPos = (gunBarrel ? gunBarrel.getWorldPosition(new T.Vector3()) : gun.getWorldPosition(new T.Vector3()))
-    .addScaledVector(fwd, -1.05);
-  _rigM.compose(camPos, base, _rigS.set(1, 1, 1)).invert().multiply(gun.matrixWorld);
-  const gunPos = new T.Vector3(), gunQuat = new T.Quaternion(), s = new T.Vector3();
-  _rigM.decompose(gunPos, gunQuat, s);
-  const eye = camPos.clone().sub(player.position).applyQuaternion(_rigInv.copy(base).invert());
-  gunRig = { eye, gunPos, gunQuat };
-  return gunRig;
-}
-function updateGunCamera(dt) {
-  const rig = ensureGunRig();
-  const base = player.quaternion;
-  _coneE.set(G.pitch, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
-  _aimQ.copy(base).multiply(_coneQ);                 // view = nose heading + aim cone
+
   camera.quaternion.copy(_aimQ);
-  // fixed gunner's eye on the plane; the view pivots in place within the cone
-  _camRig.copy(rig.eye).applyQuaternion(base).add(player.position);
+  _aimDir.set(0, 0, -1).applyQuaternion(_aimQ);
+  if (gunBarrel) _camRig.copy(gunBarrel.getWorldPosition(_gunEye)).addScaledVector(_aimDir, -GUN_EYE_BACK);
+  else _camRig.copy(player.position).add(V3(0, 0.75, -0.25).applyQuaternion(base));
+  _camRig.y -= GUN_EYE_DROP;                          // sit lower
   camera.position.lerp(_camRig, Math.min(1, 20 * dt));
   camera.position.x += (Math.random() - .5) * shake * .18;
   camera.position.y += (Math.random() - .5) * shake * .18;
-  // Weld the gun to the camera: identical pose in view at every aim angle;
-  // only its world position changes as the plane moves through the sky.
-  gun.quaternion.copy(camera.quaternion).multiply(rig.gunQuat);
-  gun.position.copy(camera.position).addScaledVector(_gunEye.copy(rig.gunPos).applyQuaternion(camera.quaternion), 1);
-  if (gunBarrel) gunBarrel.quaternion.copy(gunBarrelRestQuat);
   recoil *= Math.pow(.0008, dt);
 }
 const _rq = new T.Quaternion(), _rqe = new T.Euler();

@@ -1455,7 +1455,7 @@ function popHM(x, y) { ui.hm.style.left = x + 'px'; ui.hm.style.top = y + 'px'; 
 const _camTarget = new T.Vector3(), _camPos = new T.Vector3(), _look = new T.Vector3();
 const _camRig = new T.Vector3(), _aimQ = new T.Quaternion(), _coneQ = new T.Quaternion(), _coneE = new T.Euler();
 const _gunEye = new T.Vector3(), _aimDir = new T.Vector3(), _barrelAimQ = new T.Quaternion();
-const _vUp = new T.Vector3(), _vRight = new T.Vector3(), _lookE = new T.Euler(), _lookQ = new T.Quaternion();
+const _vUp = new T.Vector3(), _vRight = new T.Vector3(), _biasE = new T.Euler(), _biasQ = new T.Quaternion();
 // Auto-pilot: the plane flies DEAD STRAIGHT ahead (you can't steer it, it never
 // auto-turns toward the airship). Use flight mode to reposition.
 // Max deflection of the gun from the plane's nose: ±45° in standard, ±135° in
@@ -1528,8 +1528,8 @@ function updateGunCamera(dt) {
   // the "look up/side" sliders tilt only the view, never the gun.
   _coneE.set(G.pitch, G.yaw, 0, 'YXZ'); _coneQ.setFromEuler(_coneE);
   // the camera adds a fixed look bias on top — pure framing, the gun stays put.
-  _lookE.set(TUNE.lookUp, TUNE.lookSide, 0, 'YXZ'); _lookQ.setFromEuler(_lookE);
-  _aimQ.copy(base).multiply(_coneQ).multiply(_lookQ);
+  _biasE.set(TUNE.lookUp, TUNE.lookSide, 0, 'YXZ'); _biasQ.setFromEuler(_biasE);
+  _aimQ.copy(base).multiply(_coneQ).multiply(_biasQ);
 
   // frame/ring: bolted to the plane in front of the cockpit — static, never turns
   gun.position.copy(player.position).add(V3(0, 0.5, -0.7).applyQuaternion(base));
